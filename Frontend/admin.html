@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Database Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,600&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --accent:#0C5D52; --accent-soft:#DBEAE6;
+  --ink:#101A17; --faint:#5F6B67; --line:#D2DAD6; --line-strong:#AEBAB5;
+  --crit:#93362B; --good:#276B3C;
+  --bg:#FBFCFB; --surface:#FFFFFF;
+  --f-display:"Newsreader",Georgia,serif;
+  --f-body:"Public Sans",-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --accent:#5AD8C2; --accent-soft:#142F2A;
+    --ink:#E9EFEC; --faint:#8B9994; --line:#28332F; --line-strong:#3C4A46;
+    --crit:#E8836F; --good:#63C983; --bg:#0C1210; --surface:#121A18;
+  }
+}
+:root[data-theme="dark"]{
+  --accent:#5AD8C2; --accent-soft:#142F2A;
+  --ink:#E9EFEC; --faint:#8B9994; --line:#28332F; --line-strong:#3C4A46;
+  --crit:#E8836F; --good:#63C983; --bg:#0C1210; --surface:#121A18;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);
+     font-size:15px;line-height:1.55}
+header{border-bottom:1px solid var(--line);padding:14px 16px;display:flex;
+       gap:14px;align-items:baseline;flex-wrap:wrap}
+h1{font-family:var(--f-display);font-size:19px;font-weight:600;margin:0}
+.warn{color:var(--crit);font-size:13px;font-weight:600}
+main{max-width:70ch;margin:0 auto;padding:24px 16px 80px}
+h2{font-family:var(--f-display);font-size:17px;font-weight:600;margin:28px 0 8px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;
+      padding:14px;margin:12px 0}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{border-bottom:1px solid var(--line);padding:7px 8px;text-align:left}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);font-weight:600}
+td.n{font-family:var(--f-mono);text-align:right}
+input,textarea,select{font:inherit;padding:8px 10px;background:var(--surface);color:var(--ink);
+  border:1px solid var(--line-strong);border-radius:6px}
+textarea{font-family:var(--f-mono);font-size:13px;width:100%;min-height:150px}
+button{font:inherit;padding:8px 14px;border-radius:6px;cursor:pointer;
+       border:1px solid var(--line-strong);background:var(--surface);color:var(--ink)}
+button.go{background:var(--accent);color:var(--bg);border:none;font-weight:600}
+button.danger{color:var(--crit);border-color:var(--crit)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.muted{color:var(--faint);font-size:13px}
+#log{font-family:var(--f-mono);font-size:13px;white-space:pre-wrap;margin-top:10px}
+.ok{color:var(--good)} .err{color:var(--crit)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Database Admin</h1>
+  <span class="warn">write access &middot; port 8001</span>
+  <a href="http://localhost:8000/" class="muted" style="margin-left:auto">&larr; back to the agent</a>
+</header>
+
+<main>
+  <p class="muted">This page is the only write path to <code>health.db</code>. It runs
+  as a separate process from the agent, which holds a read-only connection and
+  cannot reach these endpoints. Changes here are irreversible and the database
+  is not in version control.</p>
+
+  <h2>Tables</h2>
+  <div class="card"><table id="tables"><tbody></tbody></table></div>
+
+  <h2>Add a table from CSV</h2>
+  <div class="card">
+    <div class="row">
+      <input type="text" id="new-name" placeholder="table_name">
+      <input type="file" id="new-file" accept=".csv">
+      <button class="go" id="create">Create</button>
+    </div>
+    <p class="muted">The header row becomes the columns. Every column is created
+    TEXT, which is how Synthea's own tables are stored and what keeps leading
+    zeros in codes intact.</p>
+  </div>
+
+  <h2>Notes</h2>
+  <div class="card">
+    <div class="row">
+      <select id="notes-table"></select>
+      <button class="go" id="save-notes">Save</button>
+      <span class="muted">First line is the summary the agent sees in its table index.</span>
+    </div>
+    <textarea id="notes" placeholder="One line saying what this table holds.&#10;&#10;Then anything the column names do not show: traps, joins that are not obvious, columns that hold no data."></textarea>
+  </div>
+
+  <div id="log"></div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v ?? "").replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
+const log = (msg, cls="") => { $("log").innerHTML = `<span class="${cls}">${esc(msg)}</span>`; };
+
+async function refresh() {
+  const {tables} = await (await fetch("/tables")).json();
+  $("tables").querySelector("tbody").innerHTML =
+    `<tr><th>Table</th><th>Rows</th><th>Notes</th><th></th></tr>` +
+    tables.map(t => `
+      <tr>
+        <td><code>${esc(t.name)}</code></td>
+        <td class="n">${t.rows.toLocaleString()}</td>
+        <td>${t.has_notes ? "yes" : '<span class="muted">none</span>'}</td>
+        <td><button class="danger" data-drop="${esc(t.name)}">Drop</button></td>
+      </tr>`).join("");
+
+  $("notes-table").innerHTML =
+    tables.map(t => `<option>${esc(t.name)}</option>`).join("");
+  loadNotes();
+
+  for (const b of document.querySelectorAll("[data-drop]")) {
+    b.onclick = () => drop(b.dataset.drop);
+  }
+}
+
+/* Typing the name is the safeguard. The server requires it too, so a client
+   that skips this prompt still cannot drop anything by accident. */
+async function drop(name) {
+  const typed = prompt(`This permanently deletes "${name}" and cannot be undone.\n\nType the table name to confirm:`);
+  if (typed !== name) { log("Cancelled.", "muted"); return; }
+  const res = await fetch(`/tables/${name}?confirm=${encodeURIComponent(typed)}`, {method: "DELETE"});
+  const body = await res.json();
+  log(res.ok ? `Dropped ${name}.` : `Failed: ${body.detail}`, res.ok ? "ok" : "err");
+  refresh();
+}
+
+$("create").onclick = async () => {
+  const name = $("new-name").value.trim();
+  const file = $("new-file").files[0];
+  if (!name || !file) { log("Name and CSV are both required.", "err"); return; }
+  const form = new FormData();
+  form.append("name", name);
+  form.append("file", file);
+  const res = await fetch("/tables", {method: "POST", body: form});
+  const body = await res.json();
+  log(res.ok
+    ? `Created ${body.table}: ${body.rows.toLocaleString()} rows, ${body.columns.length} columns. Now write its notes so the agent knows what it holds.`
+    : `Failed: ${body.detail}`, res.ok ? "ok" : "err");
+  refresh();
+};
+
+async function loadNotes() {
+  const name = $("notes-table").value;
+  if (!name) return;
+  const {notes} = await (await fetch(`/knowledge/${name}`)).json();
+  $("notes").value = notes;
+}
+$("notes-table").onchange = loadNotes;
+
+$("save-notes").onclick = async () => {
+  const name = $("notes-table").value;
+  const form = new FormData();
+  form.append("notes", $("notes").value);
+  const res = await fetch(`/knowledge/${name}`, {method: "PUT", body: form});
+  log(res.ok ? `Saved notes for ${name}.` : "Save failed.", res.ok ? "ok" : "err");
+  refresh();
+};
+
+refresh();
+</script>
+</body>
+</html>

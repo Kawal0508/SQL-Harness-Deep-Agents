@@ -1,0 +1,33 @@
+# Generated data and the generator itself. health.db is ~2.2 GB and the
+# Synthea jar ~197 MB, both far over GitHub's 100 MB file limit. Rebuild
+# them locally; never commit them.
+synthea-with-dependencies.jar
+synthea_output/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.csv
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Local tool caches. Hold absolute paths from one machine.
+.impeccable/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Health Data Agent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,600&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Tokens lifted from harness-survey.html so the two pages match. */
+:root{
+  --accent:#0C5D52; --accent-ink:#0A4A41; --accent-soft:#DBEAE6;
+  --ink:#101A17; --faint:#5F6B67; --line:#D2DAD6; --line-strong:#AEBAB5;
+  --crit:#93362B; --good:#276B3C;
+  --bg:#FBFCFB; --surface:#FFFFFF;
+  --f-display:"Newsreader",Georgia,serif;
+  --f-body:"Public Sans",-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --accent:#5AD8C2; --accent-ink:#8FE9D8; --accent-soft:#142F2A;
+    --ink:#E9EFEC; --faint:#8B9994; --line:#28332F; --line-strong:#3C4A46;
+    --crit:#E8836F; --good:#63C983;
+    --bg:#0C1210; --surface:#121A18;
+  }
+}
+:root[data-theme="dark"]{
+  --accent:#5AD8C2; --accent-ink:#8FE9D8; --accent-soft:#142F2A;
+  --ink:#E9EFEC; --faint:#8B9994; --line:#28332F; --line-strong:#3C4A46;
+  --crit:#E8836F; --good:#63C983;
+  --bg:#0C1210; --surface:#121A18;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);
+     font-size:15px;line-height:1.55}
+header{border-bottom:1px solid var(--line);padding:14px 16px;display:flex;
+       gap:18px;align-items:baseline;flex-wrap:wrap}
+h1{font-family:var(--f-display);font-size:19px;font-weight:600;margin:0}
+nav button{background:none;border:none;color:var(--faint);font:inherit;
+           cursor:pointer;padding:4px 0;margin-right:16px;border-bottom:2px solid transparent}
+nav button[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent)}
+main{max-width:70ch;margin:0 auto;padding:24px 16px 80px}
+#schema-view{max-width:none}
+.row{display:flex;gap:8px}
+input[type=text],textarea{flex:1;font:inherit;padding:9px 11px;background:var(--surface);
+  color:var(--ink);border:1px solid var(--line-strong);border-radius:6px}
+textarea{font-family:var(--f-mono);font-size:13px;width:100%;min-height:90px}
+button.go{background:var(--accent);color:var(--bg);border:none;border-radius:6px;
+  padding:9px 16px;font:inherit;font-weight:600;cursor:pointer}
+button.go:disabled{opacity:.5;cursor:default}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;
+      padding:14px;margin:16px 0}
+.card h2{margin:0 0 8px;font-size:12px;font-weight:600;letter-spacing:.07em;
+         text-transform:uppercase;color:var(--faint)}
+pre{font-family:var(--f-mono);font-size:13px;white-space:pre-wrap;word-break:break-word;margin:0}
+.gate{border-color:var(--accent);border-left-width:3px}
+.gate .acts{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.gate button{font:inherit;padding:7px 14px;border-radius:6px;cursor:pointer;
+             border:1px solid var(--line-strong);background:var(--surface);color:var(--ink)}
+.gate button.approve{background:var(--good);border-color:var(--good);color:var(--bg);font-weight:600}
+.gate button.reject{color:var(--crit);border-color:var(--crit)}
+.muted{color:var(--faint)}
+.err{color:var(--crit)}
+table{border-collapse:collapse;width:100%;font-size:13px;display:block;
+      overflow:auto;max-height:340px}
+th,td{border:1px solid var(--line);padding:5px 8px;text-align:left;white-space:nowrap}
+th{position:sticky;top:0;background:var(--accent-soft);font-weight:600}
+td{font-family:var(--f-mono)}
+#thinking{max-height:220px;overflow:auto;color:var(--faint);font-size:13px}
+#answer{font-size:16px}
+#map{width:100%;height:620px;background:var(--surface);border:1px solid var(--line);
+     border-radius:8px}
+#map .node{cursor:pointer}
+#map .node rect{fill:var(--surface);stroke:var(--line-strong)}
+#map .node.hub rect{fill:var(--accent-soft);stroke:var(--accent)}
+#map .node text{font-family:var(--f-mono);font-size:11px;fill:var(--ink)}
+#map .node:hover rect{stroke:var(--accent);stroke-width:2}
+#map line{stroke:var(--line-strong);opacity:.55}
+#detail pre{font-size:12.5px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Health Data Agent</h1>
+  <nav>
+    <button id="tab-ask" aria-selected="true">Ask</button>
+    <button id="tab-schema" aria-selected="false">Schema</button>
+    <button id="tab-admin" aria-selected="false">Admin</button>
+  </nav>
+  <span class="muted" style="margin-left:auto;font-size:13px">read-only &middot; synthetic data</span>
+</header>
+
+<main id="ask-view">
+  <div class="row">
+    <input type="text" id="q" placeholder="How many living patients are in the database?" autofocus>
+    <button class="go" id="send">Ask</button>
+  </div>
+  <div class="card" id="thinking-card" hidden>
+    <h2>Reasoning</h2><pre id="thinking"></pre>
+  </div>
+  <div id="gates"></div>
+  <div class="card" id="rows-card" hidden>
+    <h2>Result</h2><div id="rows"></div>
+  </div>
+  <div class="card" id="answer-card" hidden>
+    <h2>Answer</h2><div id="answer"></div>
+  </div>
+</main>
+
+<main id="schema-view" hidden>
+  <p class="muted">18 tables. <code>patients</code> is the hub. No foreign keys are
+  declared in this database, so every line below is a convention verified by
+  counting orphan rows. Click a table for its columns and notes.</p>
+  <svg id="map"></svg>
+  <div class="card" id="detail" hidden><h2 id="detail-name"></h2><pre id="detail-body"></pre></div>
+</main>
+
+<script>
+const API = "";
+const session = crypto.randomUUID();
+const $ = (id) => document.getElementById(id);
+
+/* ---- tabs ---- */
+const views = {ask:$("ask-view"), schema:$("schema-view")};
+for (const name of ["ask","schema","admin"]) {
+  $("tab-"+name).onclick = () => {
+    if (name === "admin") { window.open("http://localhost:8001/", "_blank"); return; }
+    for (const [k,v] of Object.entries(views)) {
+      v.hidden = k !== name;
+      $("tab-"+k).setAttribute("aria-selected", String(k === name));
+    }
+    if (name === "schema") drawMap();
+  };
+}
+
+/* ---- SSE over POST ----
+   EventSource is GET-only, so read the response body and split frames by hand. */
+async function stream(path, body, on) {
+  const res = await fetch(API + path, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body),
+  });
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, {stream: true});
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop();
+    for (const frame of frames) {
+      const event = /^event: (.+)$/m.exec(frame);
+      const data = /^data: ([\s\S]+)$/m.exec(frame);
+      if (event && data) on(event[1], JSON.parse(data[1]));
+    }
+  }
+}
+
+/* ---- ask ---- */
+function reset() {
+  $("thinking").textContent = "";
+  $("thinking-card").hidden = true;
+  $("gates").innerHTML = "";
+  $("rows").innerHTML = "";
+  $("rows-card").hidden = true;
+  $("answer").textContent = "";
+  $("answer-card").hidden = true;
+}
+
+function drawRows(rows) {
+  $("rows-card").hidden = false;
+  if (!rows.length) { $("rows").innerHTML = '<p class="muted">No rows.</p>'; return; }
+  const cols = Object.keys(rows[0]);
+  const head = cols.map(c => `<th>${esc(c)}</th>`).join("");
+  const body = rows.map(r =>
+    `<tr>${cols.map(c => `<td>${esc(r[c])}</td>`).join("")}</tr>`).join("");
+  $("rows").innerHTML = `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+const esc = (v) => String(v ?? "").replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
+
+/* One gate can cover several tool calls. Collect a decision for each, then
+   send them together - the runtime rejects a list of the wrong length. */
+function drawGate(payload) {
+  const {action_requests: actions, review_configs: configs} = payload;
+  const decisions = new Array(actions.length).fill(null);
+  const card = document.createElement("div");
+  card.className = "card gate";
+  $("gates").append(card);
+
+  actions.forEach((action, i) => {
+    const allowed = (configs.find(c => c.action_name === action.name) || {})
+      .allowed_decisions || ["approve", "reject"];
+    const block = document.createElement("div");
+    block.innerHTML =
+      `<h2>Approve ${esc(action.name)}</h2>
+       <textarea ${allowed.includes("edit") ? "" : "readonly"}>${esc(action.args.query ?? JSON.stringify(action.args, null, 2))}</textarea>
+       <div class="acts"></div>`;
+    const box = block.querySelector("textarea");
+    const acts = block.querySelector(".acts");
+
+    const settle = (decision, label) => {
+      decisions[i] = decision;
+      acts.innerHTML = `<span class="muted">${label}</span>`;
+      box.readOnly = true;
+      if (decisions.every(Boolean)) {
+        stream("/decide", {session_id: session, decisions}, handle);
+      }
+    };
+
+    const button = (cls, text, make) => {
+      const b = document.createElement("button");
+      b.className = cls; b.textContent = text;
+      b.onclick = () => settle(make(), text.toLowerCase() + "d");
+      acts.append(b);
+    };
+
+    button("approve", "Approve", () =>
+      // An edited box is an edit even if Approve was the button pressed.
+      box.value.trim() === String(action.args.query ?? "").trim()
+        ? {type: "approve"}
+        : {type: "edit",
+           edited_action: {name: action.name, args: {...action.args, query: box.value.trim()}}});
+    button("reject", "Reject", () => ({
+      type: "reject",
+      message: "Reviewer declined this query. Say what you would have run and why; do not retry it.",
+    }));
+    card.append(block);
+  });
+}
+
+function handle(event, data) {
+  if (event === "thinking") {
+    $("thinking-card").hidden = false;
+    $("thinking").textContent += data;
+    $("thinking").scrollTop = $("thinking").scrollHeight;
+  } else if (event === "tool") {
+    $("thinking-card").hidden = false;
+    $("thinking").textContent += `\n[${data.name}] ${data.args.query ?? data.args.table ?? ""}\n`;
+  } else if (event === "rows") {
+    drawRows(data);
+  } else if (event === "approval") {
+    drawGate(data);
+  } else if (event === "answer") {
+    $("answer-card").hidden = false;
+    $("answer").textContent = data;
+    $("send").disabled = false;
+  } else if (event === "tool_error" || event === "error") {
+    $("answer-card").hidden = false;
+    $("answer").innerHTML = `<span class="err">${esc(data)}</span>`;
+    $("send").disabled = false;
+  }
+}
+
+$("send").onclick = () => {
+  const question = $("q").value.trim();
+  if (!question) return;
+  reset();
+  $("send").disabled = true;
+  stream("/ask", {session_id: session, question}, handle);
+};
+$("q").addEventListener("keydown", e => { if (e.key === "Enter") $("send").click(); });
+
+/* ---- schema map ----
+   patients sits at the centre, everything else on a ring around it. The join
+   graph is close enough to a star that trigonometry beats a layout library. */
+let mapDrawn = false;
+async function drawMap() {
+  if (mapDrawn) return;
+  mapDrawn = true;
+  const {tables, edges} = await (await fetch(API + "/schema")).json();
+  const svg = $("map");
+  const W = svg.clientWidth || 900, H = 620, cx = W/2, cy = H/2;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+
+  const hubs = ["patients", "encounters"];
+  const ring = tables.map(t => t.name).filter(n => !hubs.includes(n));
+  const at = {};
+  at["patients"]   = [cx, cy - 34];
+  at["encounters"] = [cx, cy + 34];
+  ring.forEach((name, i) => {
+    const angle = (i / ring.length) * 2 * Math.PI - Math.PI/2;
+    at[name] = [cx + Math.cos(angle) * (W/2 - 90), cy + Math.sin(angle) * (H/2 - 60)];
+  });
+
+  const ns = "http://www.w3.org/2000/svg";
+  const make = (tag, attrs) => {
+    const el = document.createElementNS(ns, tag);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    return el;
+  };
+
+  for (const e of edges) {
+    if (!at[e.source] || !at[e.target]) continue;
+    svg.append(make("line", {
+      x1: at[e.source][0], y1: at[e.source][1],
+      x2: at[e.target][0], y2: at[e.target][1],
+    }));
+  }
+  for (const t of tables) {
+    const [x, y] = at[t.name];
+    const w = t.name.length * 6.6 + 16;
+    const g = make("g", {class: "node" + (hubs.includes(t.name) ? " hub" : "")});
+    g.append(make("rect", {x: x-w/2, y: y-11, width: w, height: 22, rx: 4}));
+    const label = make("text", {x, y: y+4, "text-anchor": "middle"});
+    label.textContent = t.name;
+    g.append(label);
+    g.onclick = () => showTable(t.name);
+    svg.append(g);
+  }
+}
+
+async function showTable(name) {
+  const res = await fetch(API + "/schema/" + name);
+  const data = await res.json();
+  $("detail").hidden = false;
+  $("detail-name").textContent = name;
+  $("detail-body").textContent = data.detail;
+  $("detail").scrollIntoView({behavior: "smooth", block: "nearest"});
+}
+</script>
+</body>
+</html>

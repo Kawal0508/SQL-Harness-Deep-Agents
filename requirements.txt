@@ -1,0 +1,6 @@
+deepagents>=0.7,<0.8
+python-dotenv
+# Web layer: api.py (agent, read-only, :8000) and admin.py (write, :8001).
+fastapi
+uvicorn[standard]
+python-multipart
