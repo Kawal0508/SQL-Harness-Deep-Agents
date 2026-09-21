@@ -112,15 +112,24 @@ def system_prompt() -> str:
     return "\n\n".join(parts)
 
 
-def build_agent(gated: bool = False, response_format: type | None = None):
-    """Compile the agent. `gated` turns on the y/n approval interrupt."""
+def build_agent(
+    gated: bool = False,
+    response_format: type | None = None,
+    checkpointer=None,
+):
+    """Compile the agent. `gated` turns on the y/n approval interrupt.
+
+    `checkpointer` defaults to an in-memory one, which suits the terminal
+    client and the eval: both finish inside a single process. The web service
+    passes a SQLite saver instead, so a thread survives a restart.
+    """
     return create_deep_agent(
         model=MODEL,
         tools=OUR_TOOLS,
         system_prompt=system_prompt(),
         # A checkpointer is mandatory for interrupts: pause and resume work by
         # persisting graph state. Harmless when ungated.
-        checkpointer=InMemorySaver(),
+        checkpointer=checkpointer or InMemorySaver(),
         # "edit" lets a reviewer correct the SQL instead of only accepting or
         # refusing it, and the web UI draws its buttons from this list. A
         # decision whose type is not listed here raises at resume time, so the

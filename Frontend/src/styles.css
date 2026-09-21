@@ -32,6 +32,29 @@ nav button{background:none;border:none;color:var(--faint);font:inherit;
            cursor:pointer;padding:4px 0;margin-right:16px;border-bottom:2px solid transparent}
 nav button[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent)}
 main{max-width:70ch;margin:0 auto;padding:24px 16px 8px}
+/* Sidebar plus thread. The thread keeps its own centring inside the second
+   column, so the page looks unchanged when the sidebar is not there. */
+#workspace{display:grid;grid-template-columns:220px minmax(0,1fr);align-items:start}
+#workspace main{width:100%}
+#sidebar{position:sticky;top:0;padding:16px 12px;border-right:1px solid var(--line);
+         height:100vh;overflow:auto}
+.new-chat{width:100%;margin-bottom:14px}
+.threads{list-style:none;margin:0;padding:0}
+.threads li{display:flex;align-items:center;gap:4px;border-radius:6px}
+.threads li.active{background:var(--accent-soft)}
+.threads .pick{flex:1;min-width:0;background:none;border:none;color:var(--ink);
+  font:inherit;font-size:13px;text-align:left;padding:7px 8px;cursor:pointer;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.threads li.active .pick{color:var(--accent-ink)}
+.threads .drop{background:none;border:none;color:var(--faint);font-size:16px;
+  line-height:1;padding:4px 8px;cursor:pointer;visibility:hidden}
+.threads li:hover .drop{visibility:visible}
+.threads .drop:hover{color:var(--crit)}
+@media (max-width:720px){
+  #workspace{grid-template-columns:1fr}
+  #sidebar{position:static;height:auto;border-right:none;
+           border-bottom:1px solid var(--line)}
+}
 #schema-view{max-width:none}
 .row{display:flex;gap:8px}
 input[type=text],textarea{flex:1;font:inherit;padding:9px 11px;background:var(--surface);

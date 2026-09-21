@@ -5,14 +5,28 @@ import QuestionInput from "./QuestionInput.tsx";
 import Turn, {emptyTurn} from "./Turn.tsx";
 import type {TurnState} from "./Turn.tsx";
 
-/* The graph threads turns server-side on session_id, so the page keeps one id
-   for its lifetime and just appends a block per question. */
-const SESSION = crypto.randomUUID();
+interface Props {
+  sessionId: string;
+  onFirstQuestion: (question: string) => void;
+}
 
-export default function Ask() {
+/* One thread. App remounts this on a thread switch (see its `key`), so the
+   turn list, the composer and `busy` all reset without reset logic here. */
+export default function Ask({sessionId, onFirstQuestion}: Props) {
   const [turns, setTurns] = useState<TurnState[]>([]);
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // Reopening a thread has no stream to replay, so the server rebuilds the
+  // turns from what the checkpointer kept.
+  useEffect(() => {
+    let live = true;
+    fetch(`/history/${sessionId}`)
+      .then(r => r.json())
+      .then((data: {turns: TurnState[]}) => { if (live) setTurns(data.turns); })
+      .catch(() => { /* an unreachable server shows an empty thread */ });
+    return () => { live = false; };
+  }, [sessionId]);
 
   useEffect(() => {
     document.querySelector(".turn:last-of-type")
@@ -60,14 +74,15 @@ export default function Ask() {
   const ask = () => {
     const q = question.trim();
     if (!q || busy) return;
+    if (turns.length === 0) onFirstQuestion(q);
     setTurns(ts => [...ts, emptyTurn(q)]);
     setQuestion("");
     setBusy(true);
-    void stream("/ask", {session_id: SESSION, question: q}, handle);
+    void stream("/ask", {session_id: sessionId, question: q}, handle);
   };
 
   const decide = (decisions: Decision[]) =>
-    void stream("/decide", {session_id: SESSION, decisions}, handle);
+    void stream("/decide", {session_id: sessionId, decisions}, handle);
 
   return (
     <main>

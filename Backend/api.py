@@ -22,15 +22,18 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+import aiosqlite
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
 from pydantic import BaseModel
 
@@ -44,8 +47,30 @@ FRONTEND = Path(__file__).resolve().parent.parent / "Frontend"
 # bundle here; in dev, `npm --prefix Frontend run dev` serves it on :5173 and
 # proxies the API routes back to this process instead.
 DIST = FRONTEND / "dist"
+# Conversation state only. Separate file from health.db, which this service
+# opens read-only and must never be written by anything but the admin.
+THREADS_DB = Path(__file__).resolve().parent.parent / "Database" / "threads.db"
 
-app = FastAPI(title="Health data agent")
+GRAPH = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Open the checkpointer for the life of the process.
+
+    AsyncSqliteSaver holds one aiosqlite connection, so it is built here
+    rather than per request, and the graph is compiled against it once.
+    """
+    global GRAPH
+    THREADS_DB.parent.mkdir(parents=True, exist_ok=True)
+    async with aiosqlite.connect(THREADS_DB) as connection:
+        saver = AsyncSqliteSaver(connection)
+        await saver.setup()
+        GRAPH = agent.build_agent(gated=True, checkpointer=saver)
+        yield
+
+
+app = FastAPI(title="Health data agent", lifespan=lifespan)
 
 # The admin UI is served from :8001 and calls back here to refresh the schema
 # view after a table changes. Localhost only; needs real origins before this
@@ -57,15 +82,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# One graph for the whole service. Sessions are thread_ids against its shared
-# checkpointer, not separate graphs - building one per session would recompile
-# the agent on every question and lose the conversation anyway.
-#
-# ponytail: InMemorySaver, so a restart drops every open session and a pending
-# approval resumes into nothing. Upgrade is `pip install
-# langgraph-checkpoint-sqlite` and swapping the checkpointer in
-# agent.build_agent.
-GRAPH = agent.build_agent(gated=True)
+# One graph for the whole service, compiled in the lifespan above. Sessions
+# are thread_ids against its shared checkpointer, not separate graphs -
+# building one per session would recompile the agent on every question and
+# lose the conversation anyway.
 
 
 class Ask(BaseModel):
@@ -228,6 +248,84 @@ async def decide(body: Decide) -> StreamingResponse:
     return StreamingResponse(
         run(payload, body.session_id), media_type="text/event-stream"
     )
+
+
+def _turn(question: str) -> dict:
+    """An empty turn in the shape the page renders."""
+    return {
+        "question": question,
+        "thinking": "",
+        "results": [],
+        "gates": [],
+        "toolErrors": [],
+        "lastTool": "",
+        "answer": "",
+        "error": "",
+    }
+
+
+def _turns_from(messages: list, interrupt: dict | None) -> list[dict]:
+    """Rebuild the page's turns from stored graph state.
+
+    The live page assembles turns from the event stream. Reopening a thread
+    has no stream to replay, so the same shape is derived from the messages
+    the checkpointer kept. A message before the first question belongs to no
+    turn and is dropped.
+    """
+    turns: list[dict] = []
+    for message in messages:
+        if isinstance(message, HumanMessage):
+            turns.append(_turn(_text(message.content)))
+            continue
+        if not turns:
+            continue
+        turn = turns[-1]
+        if isinstance(message, AIMessage):
+            for call in message.tool_calls:
+                args = call["args"]
+                argument = args.get("query") or args.get("table") or ""
+                turn["thinking"] += "\n[%s] %s\n" % (call["name"], argument)
+                # Matches the page's dedupe key, so approving a gate that was
+                # left open does not print its call a second time.
+                turn["lastTool"] = call.get("id") or ""
+            text = _text(message.content)
+            if text:
+                turn["thinking"] += text
+                # The last AI text of a turn is its answer; earlier ones were
+                # thinking out loud.
+                turn["answer"] = text
+        elif isinstance(message, ToolMessage):
+            rows = _rows_from(str(message.content))
+            if rows is not None:
+                turn["results"].append(rows)
+            elif message.status == "error":
+                turn["toolErrors"].append(str(message.content))
+    if interrupt and turns:
+        # A thread parked at a gate reopens with that gate still to answer.
+        turns[-1]["gates"].append(interrupt)
+        turns[-1]["answer"] = ""
+    return turns
+
+
+@app.get("/history/{session_id}")
+async def history(session_id: str) -> dict:
+    """Replay a stored thread. An unknown id is an empty thread, not a 404."""
+    state = await GRAPH.aget_state({"configurable": {"thread_id": session_id}})
+    pending = None
+    if state.interrupts:
+        value = state.interrupts[0].value
+        pending = {
+            "action_requests": value["action_requests"],
+            "review_configs": value.get("review_configs", []),
+        }
+    return {"turns": _turns_from(state.values.get("messages", []), pending)}
+
+
+@app.delete("/history/{session_id}")
+async def forget(session_id: str) -> dict:
+    """Drop a thread's stored state. Deleting an unknown id is a no-op."""
+    await GRAPH.checkpointer.adelete_thread(session_id)
+    return {"deleted": session_id}
 
 
 @app.get("/schema")
