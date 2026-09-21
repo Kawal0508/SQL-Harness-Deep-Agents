@@ -71,12 +71,17 @@ grows by a few patients for every day that passes. Pinned this way the run is
 deterministic: the same 2,311 patients, 2,000 of them living, at any thread
 count. Row order in the CSVs varies between runs; the contents do not.
 
-Then load `synthea_output/csv/*.csv` into `health.db`. Do not use
-`sqlite3 .import`. It creates untyped columns, stores every empty CSV field as
-an empty string rather than NULL, and builds no indexes — which silently
-inverts most of what `knowledge/` documents. `IS NULL` returns nothing,
-`allergies.STOP` stops being REAL, and the join columns `encounters` is
-documented as indexed on are gone. The loader must:
+Then load the CSVs:
+
+```bash
+python Database/load.py          # synthea_output/csv -> health.db
+```
+
+Do not use `sqlite3 .import`. It creates untyped columns, stores every empty
+CSV field as an empty string rather than NULL, and builds no indexes - which
+silently inverts most of what `knowledge/` documents. `IS NULL` returns
+nothing, `allergies.STOP` stops being REAL, and the join columns `encounters`
+is documented as indexed on are gone. `load.py` does instead:
 
 - write NULL for an empty field, not `''`
 - type each column from its values: all-integer and no blanks gives INTEGER, an
@@ -91,7 +96,17 @@ read-only guarantees do not hold.
 
 ## Run
 
-Build the UI once, then start both services from `Backend/`:
+One command, once the database exists:
+
+```bash
+make up              # POSIX, WSL, git-bash with make
+./dev up             # Windows
+```
+
+Both build the bundle and start the agent on :8000 and the admin on :8001.
+`make help` or `./dev` lists the rest: `install`, `db`, `build`, `check`.
+
+The same thing by hand:
 
 ```bash
 npm --prefix Frontend install
