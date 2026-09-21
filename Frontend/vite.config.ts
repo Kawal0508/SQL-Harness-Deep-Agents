@@ -8,7 +8,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: Object.fromEntries(
-      ["/ask", "/decide", "/schema"].map(p => [p, "http://localhost:8000"])
+      ["/ask", "/decide", "/schema", "/history"].map(p => [p, "http://localhost:8000"])
     ),
   },
 });

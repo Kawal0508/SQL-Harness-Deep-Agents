@@ -12,7 +12,8 @@ real patients and no PHI.
 ## Folders
 
 ```
-Database/     health.db, the Synthea generator, and what the data means
+Database/     health.db, threads.db, the Synthea generator, and what the
+              data means
   knowledge/
     tables/   one .md per table: what it holds and what goes wrong
     definitions.md   cohort rules, HbA1c bands, readmission definition
@@ -30,7 +31,7 @@ the opposite: prompt text, so it sits with the code.
 |---|---|
 | `tools.py` | The two tools: `run_sql` and `describe_schema`. Read-only enforcement lives here. No framework imports, so it works under any harness. |
 | `agent.py` | Deep Agents wiring. Strips the eight built-in filesystem and shell tools. Terminal loop. |
-| `api.py` | Agent service, port 8000. Streams a turn to the browser and exposes the approval gate over HTTP. |
+| `api.py` | Agent service, port 8000. Streams a turn to the browser, exposes the approval gate over HTTP, and replays stored threads. |
 | `admin.py` | Admin service, port 8001. The only write connection in the codebase. |
 | `instructions.md` | System prompt. |
 | `eval.py`, `eval_cases.py` | Graded accuracy and measured cost. |
@@ -107,8 +108,13 @@ build has to exist; without it `/` answers 503 and says so.
 While working on the UI, run Vite instead and leave both services up:
 
 ```bash
-npm --prefix Frontend run dev             # :5173, proxies /ask /decide /schema to :8000
+npm --prefix Frontend run dev             # :5173, proxies the API routes to :8000
 ```
+
+`--reload` has been seen to announce a reload and never start the new worker,
+leaving the old code serving and the worker orphaned on the port. If an edit
+does not take effect, stop the worker process itself rather than the reloader
+parent, and start the service again.
 
 Two processes on purpose. The agent service opens the database read-only; the
 admin service is the only thing that can write to it. Splitting them means a
@@ -122,6 +128,27 @@ cd Backend
 python agent.py              # queries run unattended
 python agent.py --approve    # y/n before every query
 ```
+
+## Conversations
+
+Each question is a turn in a thread, and the sidebar switches between threads.
+The model sees the whole thread, so follow-ups like "how many of those are
+female" resolve against the previous answer.
+
+Threads live in `Database/threads.db`, written by the LangGraph checkpointer
+and separate from `health.db`, which this service only ever reads. They
+survive a restart, including a thread parked at an unanswered approval gate.
+`GET /history/{id}` rebuilds a thread for the page and `DELETE /history/{id}`
+forgets one.
+
+The list of threads is held in the browser's `localStorage`, because the
+checkpointer indexes checkpoints within a thread rather than the threads
+themselves. The threads are on the server; the index is per-browser, so
+clearing site data loses the list while the data stays.
+
+Thread ids are unguessable but unauthenticated. Anyone who can reach the port
+and knows an id can read that thread, which is acceptable on localhost and is
+not a deployment posture.
 
 ## Checks that need no API key
 
@@ -225,9 +252,9 @@ an environment variable — absent.
 
 ## Known limits
 
-- **Sessions do not survive a restart.** The checkpointer is `InMemorySaver`,
-  so a pending approval resumes into nothing after the server restarts.
-  Upgrading is `pip install langgraph-checkpoint-sqlite` and two lines.
+- **The thread list is per-browser.** Threads persist in
+  `Database/threads.db`, but the index of them lives in `localStorage`, so
+  clearing site data loses the list while the threads stay on disk.
 - **No authentication on either service.** Single-user local tool. The admin
   service needs it first.
 - **Prompt-injection testing is not done.** The authorizer limits the damage;
