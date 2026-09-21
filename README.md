@@ -6,7 +6,7 @@ read-only SQLite database, and the answer comes back with the rows and the
 reasoning behind them.
 
 Built on [Deep Agents](https://github.com/langchain-ai/deepagents) (LangChain,
-MIT). Data is Synthea-generated: 2,281 synthetic Iowa residents, 18 tables, no
+MIT). Data is Synthea-generated: 2,311 synthetic Iowa residents, 18 tables, no
 real patients and no PHI.
 
 ## Folders
@@ -51,8 +51,42 @@ copy .env.example .env          # then add your key
 reaches Anthropic through `langchain-anthropic`, which authenticates with an
 API key only — a Claude Code or subscription login cannot be reused.
 
-`Database/health.db` is gitignored. If it is missing, regenerate it with the
-Synthea jar in `Database/`.
+### Regenerating the database
+
+`Database/health.db` is gitignored. Regenerate it in two steps, and pin both.
+
+```bash
+cd Database
+java -jar synthea-with-dependencies.jar \
+  -p 2000 -s 20260911 -cs 20260911 -r 20260911 -e 20260911 \
+  --exporter.baseDirectory ./synthea_output \
+  --exporter.csv.export true \
+  Iowa
+```
+
+`-e` is the flag that matters. `-r` sets the reference date but not the end of
+the simulation, so without `-e` Synthea runs through today and the population
+grows by a few patients for every day that passes. Pinned this way the run is
+deterministic: the same 2,311 patients, 2,000 of them living, at any thread
+count. Row order in the CSVs varies between runs; the contents do not.
+
+Then load `synthea_output/csv/*.csv` into `health.db`. Do not use
+`sqlite3 .import`. It creates untyped columns, stores every empty CSV field as
+an empty string rather than NULL, and builds no indexes — which silently
+inverts most of what `knowledge/` documents. `IS NULL` returns nothing,
+`allergies.STOP` stops being REAL, and the join columns `encounters` is
+documented as indexed on are gone. The loader must:
+
+- write NULL for an empty field, not `''`
+- type each column from its values: all-integer and no blanks gives INTEGER, an
+  integer column with blanks or any real number gives REAL, an entirely empty
+  column gives REAL, anything else TEXT
+- index `encounters(Id, PATIENT, CODE, DESCRIPTION)`, `claims(Id)`,
+  `organizations(Id)`, `providers(Id)` and `payer_transitions(PATIENT)`, and
+  leave `claims_transactions` unindexed
+
+`python Backend/tools.py` checks the result. It fails if the row count or the
+read-only guarantees do not hold.
 
 ## Run
 
@@ -135,14 +169,14 @@ The model reads the index, picks the tables it needs, and pulls only those. The
 notes carry what the column names do not show. Real examples from this
 database:
 
-- `allergies.STOP` is declared REAL and is NULL in all 2,280 rows. Any filter
+- `allergies.STOP` is declared REAL and is NULL in all 2,285 rows. Any filter
   against it returns nothing.
 - `observations.CODE` is TEXT while every other `CODE` column is INTEGER.
   Joining across them silently returns nothing.
-- `imaging_studies.Id` is not unique. 185,188 rows hold 11,210 studies, so
-  `COUNT(*)` overstates by about 16.5 times.
+- `imaging_studies.Id` is not unique. 208,830 rows hold 11,615 studies, so
+  `COUNT(*)` overstates by about 18 times.
 - `claims_transactions.PATIENTINSURANCEID` reads like a foreign key to
-  `payers`. It is not — 2,100,118 of its values match no payer.
+  `payers`. It is not — 2,136,679 of its values match no payer.
 - `claims_transactions` has 2.2M rows and no index on any column.
 
 No foreign keys are declared anywhere in this database. The join map in

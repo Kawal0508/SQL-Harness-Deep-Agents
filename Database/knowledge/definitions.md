@@ -9,28 +9,28 @@ used and that it was not an agreed one.
 ## Cohorts
 
 **Living patient** — `patients.DEATHDATE` is NULL or an empty string. 2,000 of
-2,281. See `knowledge/tables/patients.md` for why the empty-string check is
+2,311. See `knowledge/tables/patients.md` for why the empty-string check is
 kept even though this build has none.
 
 **Active condition** — `conditions.STOP` is NULL or empty.
 
 **Type 2 diabetes** — `conditions.DESCRIPTION = 'Diabetes mellitus type 2
-(disorder)'`. 183 patients. Complications are separate conditions and do not
-imply the base diagnosis: kidney disorder 227, microalbuminuria 198,
-proteinuria 142, neuropathy 60, retinopathy 71 across three differently spelled
+(disorder)'`. 189 patients. Complications are separate conditions and do not
+imply the base diagnosis: kidney disorder 228, microalbuminuria 199,
+proteinuria 147, neuropathy 60, retinopathy 62 across three differently spelled
 descriptions. Counting any diabetes-related condition gives a larger cohort, so
 say which one you used.
 
-**Prediabetes is not diabetes.** `Prediabetes (finding)`, 815 patients. Report
+**Prediabetes is not diabetes.** `Prediabetes (finding)`, 830 patients. Report
 it separately and never fold it into a diabetes cohort.
 
-**Heart failure** — `Chronic congestive heart failure (disorder)` (50) or
-`Heart failure (disorder)` (2). Use both: 52 distinct patients.
+**Heart failure** — `Chronic congestive heart failure (disorder)` (62) or
+`Heart failure (disorder)` (5). Use both: 67 distinct patients.
 
 ## Measures
 
 **HbA1c** — `observations.DESCRIPTION = 'Hemoglobin A1c/Hemoglobin.total in
-Blood'`, `TYPE = 'numeric'`, units `%`. 18,889 readings.
+Blood'`, `TYPE = 'numeric'`, units `%`. 19,168 readings.
 
 | Band | HbA1c |
 |---|---|
@@ -44,8 +44,8 @@ mean across readings.
 
 **30-day readmission** — an `encounters` row with `ENCOUNTERCLASS = 'inpatient'`
 starting within 30 days of a prior inpatient encounter's `STOP`. Count distinct
-readmission encounters: 266. Counting discharge-to-readmission pairs instead
-gives 275. There are 2,296 inpatient encounters in total, so always report the
+readmission encounters: 328. Counting discharge-to-readmission pairs instead
+gives 340. There are 2,409 inpatient encounters in total, so always report the
 denominator. Telligen's grade tables should settle which count is wanted.
 
 **Age** — there is no age column. Compute it and say which date you computed it

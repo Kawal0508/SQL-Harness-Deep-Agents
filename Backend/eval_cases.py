@@ -44,7 +44,7 @@ OPEN QUESTION FOR TELLIGEN
 --------------------------
 The 30-day readmission definition does not say whether an encounter readmitted
 within 30 days of two earlier discharges counts once or twice. Distinct
-encounters gives 266, discharge-readmission pairs gives 275. This set uses 266,
+encounters gives 328, discharge-readmission pairs gives 340. This set uses 328,
 matching "an encounters row" in the definition. Telligen's grade tables should
 settle it.
 """
@@ -56,7 +56,7 @@ CASES: list[dict] = [
         "id": "living-patients",
         "question": "How many living patients are in the database?",
         "targets": "living-patient rule: DEATHDATE empty string, not just NULL",
-        "naive_error": "answering 2281 (every patient) or filtering on IS NULL alone",
+        "naive_error": "answering 2311 (every patient) or filtering on IS NULL alone",
         "truth_sql": """
             SELECT COUNT(*) AS n FROM patients
             WHERE DEATHDATE IS NULL OR DEATHDATE = ''
@@ -86,7 +86,7 @@ CASES: list[dict] = [
         "id": "heart-failure-cohort",
         "question": "How many patients have heart failure?",
         "targets": "the cohort is two DESCRIPTION values, not one",
-        "naive_error": "answering 50 by using only 'Chronic congestive heart failure (disorder)'",
+        "naive_error": "answering 62 by using only 'Chronic congestive heart failure (disorder)'",
         "truth_sql": """
             SELECT COUNT(DISTINCT PATIENT) AS n FROM conditions
             WHERE DESCRIPTION IN (
@@ -156,7 +156,7 @@ CASES: list[dict] = [
         "id": "medicated-patients",
         "question": "How many patients have been prescribed at least one medication?",
         "targets": "medications has no primary key, use COUNT(DISTINCT PATIENT)",
-        "naive_error": "answering 122682, the row count",
+        "naive_error": "answering 121823, the row count",
         "truth_sql": "SELECT COUNT(DISTINCT PATIENT) AS n FROM medications",
     },
     {
@@ -178,7 +178,7 @@ CASES: list[dict] = [
         ),
         "naive_error": (
             "COUNT(*) over the join, which counts pairs - an encounter readmitted "
-            "within 30 days of two earlier discharges is then counted twice (275)"
+            "within 30 days of two earlier discharges is then counted twice (340)"
         ),
         # Both START and STOP are timestamps here, so they compare directly.
         # substr() truncation belongs in joins across the date-only tables and

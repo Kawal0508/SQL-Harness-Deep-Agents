@@ -1,6 +1,6 @@
 # Synthetic health database
 
-Synthea-generated records for 2,281 synthetic Iowa residents. No real patients,
+Synthea-generated records for 2,311 synthetic Iowa residents. No real patients,
 no PHI. SQLite, read-only, 18 tables.
 
 You have exactly two tools: `describe_schema` and `run_sql`. There is no
@@ -27,11 +27,11 @@ groups gives wrong results. Normalise with `substr(col, 1, 10)`. Each table's
 notes say which shape its date columns use.
 
 **2. `observations.VALUE` is text.** Filter `TYPE = 'numeric'` before
-`CAST(VALUE AS REAL)`. 703,818 of 1,819,103 rows, 38.7%, are text values.
+`CAST(VALUE AS REAL)`. 706,415 of 1,830,903 rows, 38.6%, are text values.
 
 **3. `conditions` is not a disease list.** It holds every SNOMED finding,
 including administrative and social ones. The single most common entry is
-`Medication review due (situation)`, recorded for all 2,281 patients. Filter by
+`Medication review due (situation)`, recorded for all 2,311 patients. Filter by
 specific `DESCRIPTION` values. Never count rows as "number of diseases".
 
 ## How the tables connect

@@ -50,7 +50,7 @@ QUERY_TIMEOUT_SECONDS = 30
 #
 # Two of these are missing from instructions.md and one trap is not:
 # claims_transactions.PATIENTINSURANCEID reads like a payers link and is not
-# one. 2,100,118 of its 2.2M values match no payer; it is a per-patient policy
+# one. 2,136,679 of its 2.2M values match no payer; it is a per-patient policy
 # id. Joining on it silently returns almost nothing.
 _CLINICAL = {"PATIENT": "patients", "ENCOUNTER": "encounters"}
 EDGES: dict[str, dict[str, str]] = {
@@ -347,7 +347,7 @@ def _self_check() -> None:
     assert "BIRTHDATE" in describe_schema("patients")
 
     counted = run_sql("SELECT COUNT(*) AS n FROM patients")
-    assert '"n": 2281' in counted, counted
+    assert '"n": 2311' in counted, counted
 
     capped = run_sql("SELECT Id FROM patients", limit=5)
     assert "row_count: 5" in capped and "TRUNCATED" in capped, capped

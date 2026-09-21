@@ -1,6 +1,6 @@
 Billing claims. Uses different column names from every clinical table.
 
-258,594 rows, `Id` unique. The patient column is `PATIENTID`, not `PATIENT`.
+259,501 rows, `Id` unique. The patient column is `PATIENTID`, not `PATIENT`.
 
 There is no `ENCOUNTER` column. `APPOINTMENTID` is the only route from a claim
 back to the visit it bills for.
@@ -15,4 +15,4 @@ point at no table in this database.
 `SERVICEDATE`, `CURRENTILLNESSDATE` and the three `LASTBILLEDDATE` columns are
 all full timestamps.
 
-Only `Id` is indexed, so every join on `PATIENTID` scans all 258,594 rows.
+Only `Id` is indexed, so every join on `PATIENTID` scans all 259,501 rows.
