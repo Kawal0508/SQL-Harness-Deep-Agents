@@ -29,6 +29,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.types import Command
 from pydantic import BaseModel
@@ -39,6 +40,10 @@ import tools
 load_dotenv()
 
 FRONTEND = Path(__file__).resolve().parent.parent / "Frontend"
+# The UI is a Vite/React app. `npm --prefix Frontend run build` writes the
+# bundle here; in dev, `npm --prefix Frontend run dev` serves it on :5173 and
+# proxies the API routes back to this process instead.
+DIST = FRONTEND / "dist"
 
 app = FastAPI(title="Health data agent")
 
@@ -148,7 +153,15 @@ async def run(payload: Any, session_id: str) -> AsyncIterator[str]:
                 for message in node.get("messages", []):
                     if isinstance(message, AIMessage):
                         for call in message.tool_calls:
-                            yield sse("tool", {"name": call["name"], "args": call["args"]})
+                            # The id lets the page drop the duplicate: resuming
+                            # after a gate replays the node that made this
+                            # call, so the same event arrives on /ask and
+                            # again on /decide.
+                            yield sse("tool", {
+                                "id": call.get("id"),
+                                "name": call["name"],
+                                "args": call["args"],
+                            })
                     elif isinstance(message, ToolMessage):
                         rows = _rows_from(str(message.content))
                         if rows is not None:
@@ -173,7 +186,18 @@ async def run(payload: Any, session_id: str) -> AsyncIterator[str]:
             )
             return
 
-        final = state.values["messages"][-1]
+        # After a rejection the newest message is the rejection ToolMessage,
+        # and sending that back as the answer hides what the model actually
+        # said. Walk to the newest AIMessage carrying text instead.
+        messages = state.values["messages"]
+        final = next(
+            (
+                message
+                for message in reversed(messages)
+                if isinstance(message, AIMessage) and _text(message.content).strip()
+            ),
+            messages[-1],
+        )
         yield sse("answer", _text(final.content))
     except Exception as exc:  # a failed turn must close the stream, not hang it
         yield sse("error", repr(exc))
@@ -221,4 +245,15 @@ def schema_table(table: str) -> dict:
 
 @app.get("/")
 def index() -> FileResponse:
-    return FileResponse(FRONTEND / "index.html")
+    if not (DIST / "index.html").is_file():
+        raise HTTPException(
+            status_code=503,
+            detail="Frontend not built. Run: npm --prefix Frontend run build",
+        )
+    return FileResponse(DIST / "index.html")
+
+
+# Mounted last so it cannot shadow an API route. Absent before the first build,
+# which /  reports as a 503 rather than failing at import.
+if (DIST / "assets").is_dir():
+    app.mount("/assets", StaticFiles(directory=DIST / "assets"), name="assets")

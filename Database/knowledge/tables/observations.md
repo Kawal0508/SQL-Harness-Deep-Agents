@@ -18,4 +18,13 @@ drops all of them. Use a LEFT JOIN when the count matters.
 `Hemoglobin A1c/Hemoglobin.total in Blood` with `TYPE = 'numeric'` and units
 `%`: 19,168 of them.
 
+283 distinct `DESCRIPTION` values. `SELECT DISTINCT DESCRIPTION FROM
+observations` lists what is actually measured, which is cheaper and surer than
+guessing at `LIKE` patterns.
+
+Blood type is not one of them. Synthea generates no ABO group and no Rh factor,
+here or in `patients`, so no query can answer a question about blood group. Say
+so rather than searching for it. `DESCRIPTION LIKE '%ABO%'` looks like a hit and
+is not: it matches "about" in the PRAPARE survey questions.
+
 No index on `VALUE`, `UNITS` or `TYPE`.

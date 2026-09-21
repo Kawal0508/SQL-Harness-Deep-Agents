@@ -17,7 +17,7 @@ Database/     health.db, the Synthea generator, and what the data means
     tables/   one .md per table: what it holds and what goes wrong
     definitions.md   cohort rules, HbA1c bands, readmission definition
 Backend/      Python. Two services and the agent they share
-Frontend/     index.html, admin.html. No build step, no framework
+Frontend/     React + TypeScript + Vite app. admin.html stays plain HTML
 ```
 
 `knowledge/` lives under `Database/` because it documents the tables, not the
@@ -90,16 +90,25 @@ read-only guarantees do not hold.
 
 ## Run
 
-Both services start from `Backend/`:
+Build the UI once, then start both services from `Backend/`:
 
 ```bash
-cd Backend
+npm --prefix Frontend install
+npm --prefix Frontend run build           # writes Frontend/dist
 
+cd Backend
 uvicorn api:app   --reload --port 8000    # agent, read-only
 uvicorn admin:app --reload --port 8001    # admin, write
 ```
 
-Open <http://localhost:8000>.
+Open <http://localhost:8000>. The agent service serves `Frontend/dist`, so the
+build has to exist; without it `/` answers 503 and says so.
+
+While working on the UI, run Vite instead and leave both services up:
+
+```bash
+npm --prefix Frontend run dev             # :5173, proxies /ask /decide /schema to :8000
+```
 
 Two processes on purpose. The agent service opens the database read-only; the
 admin service is the only thing that can write to it. Splitting them means a
