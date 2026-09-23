@@ -2,7 +2,7 @@
 
     cd Backend && uvicorn admin:app --reload --port 8001
 
-Serves Frontend/admin.html. Writes Database/health.db and Database/knowledge/.
+Serves Frontend/admin.html. Writes Database/Synthea/health.db and knowledge/.
 
 Deliberately a second process. The agent service opens the database with
 `mode=ro` and an authorizer that denies everything but reads; this one opens it
@@ -35,9 +35,9 @@ from fastapi import FastAPI, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
+from paths import DB_PATH, TABLES as KNOWLEDGE
+
 ROOT = Path(__file__).resolve().parent.parent
-DB_PATH = ROOT / "Database" / "health.db"
-KNOWLEDGE = ROOT / "Database" / "knowledge" / "tables"
 FRONTEND = ROOT / "Frontend"
 
 # Table names are interpolated into DDL, which cannot be parameterised. So the

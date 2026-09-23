@@ -4,7 +4,7 @@ python-dotenv
 fastapi
 uvicorn[standard]
 python-multipart
-# Conversation threads. api.py keeps graph state in Database/threads.db so a
+# Conversation threads. api.py keeps graph state in Database/Synthea/threads.db so a
 # thread survives a restart; aiosqlite is listed because api.py imports it
 # directly to open that connection, not only as a transitive dependency.
 langgraph-checkpoint-sqlite

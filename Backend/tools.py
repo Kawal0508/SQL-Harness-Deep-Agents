@@ -34,11 +34,8 @@ import json
 import sqlite3
 import time
 from functools import lru_cache
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-DB_PATH = ROOT / "Database" / "health.db"
-KNOWLEDGE = ROOT / "Database" / "knowledge"
+from paths import DB_PATH, KNOWLEDGE
 
 DEFAULT_ROW_LIMIT = 1000
 QUERY_TIMEOUT_SECONDS = 30

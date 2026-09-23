@@ -6,7 +6,7 @@ same two tools, the same read-only connection, the same approval gate.
 
     cd Backend && uvicorn api:app --reload --port 8000
 
-Serves Frontend/index.html. Reads Database/health.db and Database/knowledge/.
+Serves Frontend/index.html. Reads Database/Synthea/health.db and knowledge/.
 
 The gate is the reason this is not two plain endpoints. The obvious shape -
 /generate hands the SQL to the client, /execute takes it back - lets the client
@@ -39,6 +39,7 @@ from pydantic import BaseModel
 
 import agent
 import tools
+from paths import THREADS_DB
 
 load_dotenv()
 
@@ -49,7 +50,6 @@ FRONTEND = Path(__file__).resolve().parent.parent / "Frontend"
 DIST = FRONTEND / "dist"
 # Conversation state only. Separate file from health.db, which this service
 # opens read-only and must never be written by anything but the admin.
-THREADS_DB = Path(__file__).resolve().parent.parent / "Database" / "threads.db"
 
 GRAPH = None
 

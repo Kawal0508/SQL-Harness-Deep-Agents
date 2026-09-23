@@ -12,16 +12,16 @@ real patients and no PHI.
 ## Folders
 
 ```
-Database/     health.db, threads.db, the Synthea generator, and what the
-              data means
-  knowledge/
-    tables/   one .md per table: what it holds and what goes wrong
-    definitions.md   cohort rules, HbA1c bands, readmission definition
+Database/
+  Synthea/    health.db, threads.db, the generator, and what the data means
+    knowledge/
+      tables/   one .md per table: what it holds and what goes wrong
+      definitions.md   cohort rules, HbA1c bands, readmission definition
 Backend/      Python. Two services and the agent they share
 Frontend/     React + TypeScript + Vite app. admin.html stays plain HTML
 ```
 
-`knowledge/` lives under `Database/` because it documents the tables, not the
+`knowledge/` lives under `Database/Synthea/` because it documents the tables, not the
 code. It stays useful if the Python is replaced. `Backend/instructions.md` is
 the opposite: prompt text, so it sits with the code.
 
@@ -29,6 +29,7 @@ the opposite: prompt text, so it sits with the code.
 
 | File | Role |
 |---|---|
+| `paths.py` | Dataset root. `DATASET` selects `Database/<name>/` (`Synthea` by default). |
 | `tools.py` | The two tools: `run_sql` and `describe_schema`. Read-only enforcement lives here. No framework imports, so it works under any harness. |
 | `agent.py` | Deep Agents wiring. Strips the eight built-in filesystem and shell tools. Terminal loop. |
 | `api.py` | Agent service, port 8000. Streams a turn to the browser, exposes the approval gate over HTTP, and replays stored threads. |
@@ -54,15 +55,12 @@ API key only — a Claude Code or subscription login cannot be reused.
 
 ### Regenerating the database
 
-`Database/health.db` is gitignored. Regenerate it in two steps, and pin both.
+`Database/Synthea/health.db` is gitignored. Regenerate it in two steps, and pin both.
+`./gen.sh` is the same java command as below; run it from `Database/Synthea/`.
 
 ```bash
-cd Database
-java -jar synthea-with-dependencies.jar \
-  -p 2000 -s 20260911 -cs 20260911 -r 20260911 -e 20260911 \
-  --exporter.baseDirectory ./synthea_output \
-  --exporter.csv.export true \
-  Iowa
+cd Database/Synthea
+./gen.sh
 ```
 
 `-e` is the flag that matters. `-r` sets the reference date but not the end of
@@ -71,10 +69,10 @@ grows by a few patients for every day that passes. Pinned this way the run is
 deterministic: the same 2,311 patients, 2,000 of them living, at any thread
 count. Row order in the CSVs varies between runs; the contents do not.
 
-Then load the CSVs:
+Then from the repo root, load the CSVs:
 
 ```bash
-python Database/load.py          # synthea_output/csv -> health.db
+python Database/Synthea/load.py          # synthea_output/csv -> health.db
 ```
 
 Do not use `sqlite3 .import`. It creates untyped columns, stores every empty
@@ -150,7 +148,7 @@ Each question is a turn in a thread, and the sidebar switches between threads.
 The model sees the whole thread, so follow-ups like "how many of those are
 female" resolve against the previous answer.
 
-Threads live in `Database/threads.db`, written by the LangGraph checkpointer
+Threads live in `Database/Synthea/threads.db`, written by the LangGraph checkpointer
 and separate from `health.db`, which this service only ever reads. They
 survive a restart, including a thread parked at an unanswered approval gate.
 `GET /history/{id}` rebuilds a thread for the page and `DELETE /history/{id}`
@@ -214,7 +212,7 @@ Two steps, on demand, no vector store.
 1. `describe_schema()` returns every table, its row count, and one line on what
    it holds. This is the index.
 2. `describe_schema('conditions')` returns that table's columns, indexes,
-   verified joins, and the full text of `Database/knowledge/tables/conditions.md`.
+   verified joins, and the full text of `Database/Synthea/knowledge/tables/conditions.md`.
 
 The model reads the index, picks the tables it needs, and pulls only those. The
 notes carry what the column names do not show. Real examples from this
@@ -268,7 +266,7 @@ an environment variable — absent.
 ## Known limits
 
 - **The thread list is per-browser.** Threads persist in
-  `Database/threads.db`, but the index of them lives in `localStorage`, so
+  `Database/Synthea/threads.db`, but the index of them lives in `localStorage`, so
   clearing site data loses the list while the threads stay on disk.
 - **No authentication on either service.** Single-user local tool. The admin
   service needs it first.

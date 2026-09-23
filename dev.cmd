@@ -2,7 +2,7 @@
 rem Windows equivalent of the Makefile, for shells without make.
 rem
 rem   dev install   virtualenv, Python deps, npm deps
-rem   dev db        build Database\health.db from the Synthea CSVs
+rem   dev db        build Database\Synthea\health.db from the Synthea CSVs
 rem   dev build     compile the frontend bundle into Frontend\dist
 rem   dev up        build, then run both services
 rem   dev down      stop whatever is listening on 8000 or 8001
@@ -21,7 +21,7 @@ goto help
 
 :help
 echo   dev install   virtualenv, Python deps, npm deps
-echo   dev db        build Database\health.db from the Synthea CSVs
+echo   dev db        build Database\Synthea\health.db from the Synthea CSVs
 echo   dev build     compile the frontend bundle into Frontend\dist
 echo   dev up        build, then run both services
 echo   dev down      stop whatever is listening on 8000 or 8001
@@ -37,7 +37,7 @@ npm --prefix Frontend install
 exit /b %errorlevel%
 
 :db
-"%PY%" Database\load.py
+"%PY%" Database\Synthea\load.py
 exit /b %errorlevel%
 
 :build
@@ -51,8 +51,8 @@ exit /b %errorlevel%
 :up
 call npm --prefix Frontend run build
 if errorlevel 1 exit /b 1
-if not exist "Database\health.db" (
-  echo No Database\health.db. Run: dev db
+if not exist "Database\Synthea\health.db" (
+  echo No Database\Synthea\health.db. Run: dev db
   exit /b 1
 )
 echo agent  http://localhost:8000

@@ -1,8 +1,8 @@
 """Build health.db from Synthea's CSV export.
 
-    python Database/load.py                 # synthea_output/csv -> health.db
-    python Database/load.py --force         # overwrite an existing health.db
-    python Database/load.py --db /tmp/x.db  # build somewhere else
+    python Database/Synthea/load.py                 # synthea_output/csv -> health.db
+    python Database/Synthea/load.py --force         # overwrite an existing health.db
+    python Database/Synthea/load.py --db /tmp/x.db  # build somewhere else
 
 `sqlite3 .import` is not a substitute. It gives every column TEXT affinity,
 stores an empty CSV field as '' rather than NULL, and creates no indexes,

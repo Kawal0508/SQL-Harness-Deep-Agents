@@ -39,6 +39,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
 import tools
+from paths import DEFINITIONS
 
 # Before MODEL is read below: HARNESS_MODEL and the provider key both live
 # in .env, and every entry point needs them, not just main().
@@ -63,13 +64,11 @@ if ":" not in MODEL:
         "filesystem and shell tools stay enabled."
     )
 PROVIDER = MODEL.split(":", 1)[0]
-ROOT = Path(__file__).resolve().parent.parent
 INSTRUCTIONS = Path(__file__).resolve().parent / "instructions.md"
 # Agreed cohort rules and bands. Small and needed on every question, so it
 # rides in the prompt. Per-table notes are the opposite - 18 files, most of
 # them irrelevant to any one question - so those load on demand through
 # describe_schema instead.
-DEFINITIONS = ROOT / "Database" / "knowledge" / "definitions.md"
 
 # Deep Agents ships these and `tools=` is purely additive - it never removes
 # them. `excluded_middleware` cannot drop FilesystemMiddleware or
