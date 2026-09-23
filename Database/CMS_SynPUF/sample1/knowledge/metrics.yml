@@ -1,0 +1,37 @@
+# Named metric definitions.
+# Denominators, inclusions, and default year live here so adapters and gold SQL agree.
+
+metrics:
+  - id: per_capita
+    name: per capita
+    description: >
+      Average per enrolled beneficiary. The denominator is all beneficiaries
+      in the relevant year summary file (e.g. bene_2009), not the subset
+      who have inpatient, outpatient, carrier, or PDE claims.
+    denominator:
+      population: all_enrolled_beneficiaries
+      table_by_year:
+        2008: bene_2008
+        2009: bene_2009
+        2010: bene_2010
+      exclude_unclaimed: false
+    notes:
+      - Do not use COUNT(DISTINCT inpatient.DESYNPUF_ID) as the denominator.
+      - Unless the question names a subgroup (diabetes, duals, …), do not filter the denominator.
+
+  - id: prevalence_chronic_condition
+    name: chronic condition prevalence
+    description: >
+      Share of enrolled beneficiaries with a chronic-condition flag equal to 1.
+    numerator_rule: "SP_<CONDITION> = 1"
+    denominator_ref: per_capita
+    notes:
+      - Flags use 1 = yes, 2 = no. See knowledge/glossary.md.
+
+  - id: mean_claim_payment
+    name: mean claim payment
+    description: >
+      Average of CLM_PMT_AMT over claims (or claim segments) in the named
+      setting. This is per claim, not per beneficiary, unless the question
+      says per capita.
+    default_column: CLM_PMT_AMT

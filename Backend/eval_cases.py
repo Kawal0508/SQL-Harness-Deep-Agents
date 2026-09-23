@@ -22,8 +22,9 @@ KNOWN LIMITATIONS
 2. Every answer is a single number. Questions whose answer is a ranking, a
    table, a trend or a judgement are not covered, and the agent's caveats and
    prose are not graded at all. A case can pass with an unhelpful explanation.
-3. `instructions.md` calls its own definitions placeholders pending Telligen's
-   grade tables. Ground truth here is only as agreed as that file is.
+3. `Database/Synthea/knowledge/definitions.md` calls its own definitions
+   placeholders pending Telligen's grade tables. Ground truth here is only as
+   agreed as that file is.
 4. Grading is exact-match on a number. An answer that is right but reported
    against a different denominator, or right by luck from wrong SQL, scores the
    same as a well-reasoned one. The `sql` field is captured for every case so a

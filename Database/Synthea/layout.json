@@ -1,0 +1,8 @@
+{
+  "profile": "tools_synthea",
+  "definitions": [
+    "knowledge/instructions.md",
+    "knowledge/definitions.md"
+  ],
+  "tables": "knowledge/tables/{table}.md"
+}

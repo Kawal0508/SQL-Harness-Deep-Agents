@@ -35,7 +35,7 @@ from fastapi import FastAPI, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from paths import DB_PATH, TABLES as KNOWLEDGE
+from paths import DB_PATH, TABLES as KNOWLEDGE, table_notes_path
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND = ROOT / "Frontend"
@@ -84,7 +84,7 @@ def tables() -> dict:
                 {
                     "name": name,
                     "rows": conn.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0],
-                    "has_notes": (KNOWLEDGE / f"{name}.md").is_file(),
+                    "has_notes": table_notes_path(name).is_file(),
                 }
                 for name in names
             ]
@@ -155,7 +155,7 @@ def drop_table(name: str, confirm: str = "") -> dict:
 
 @app.get("/knowledge/{name}")
 def read_notes(name: str) -> dict:
-    path = KNOWLEDGE / f"{_checked(name)}.md"
+    path = table_notes_path(_checked(name))
     return {"table": name, "notes": path.read_text(encoding="utf-8") if path.is_file() else ""}
 
 

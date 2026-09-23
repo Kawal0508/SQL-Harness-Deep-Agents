@@ -9,3 +9,6 @@ python-multipart
 # directly to open that connection, not only as a transitive dependency.
 langgraph-checkpoint-sqlite
 aiosqlite
+# CMS eval_set.yaml: load cases, run DuckDB gold SQL against the SQLite file.
+pyyaml
+duckdb

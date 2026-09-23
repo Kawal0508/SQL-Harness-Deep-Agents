@@ -1,9 +1,9 @@
 """Terminal question-answering agent over the synthetic health database.
 
 Built on Deep Agents (LangChain AI, MIT). The agent gets exactly two tools,
-`run_sql` and `describe_schema` from `tools.py`, and `instructions.md` as its
-system prompt. Deep Agents' own filesystem, shell and sub-agent tools are
-stripped - see `_strip_builtin_tools`.
+`run_sql` and `describe_schema` from `tools.py`. The system prompt is the
+active dataset's `layout.json` `definitions` list. Deep Agents' own
+filesystem, shell and sub-agent tools are stripped - see `_strip_builtin_tools`.
 
     python agent.py                interactive loop, queries run unattended
     python agent.py --approve      ask y/n before every query that reads records
@@ -24,7 +24,6 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from pathlib import Path
 from uuid import uuid4
 
 from deepagents import (
@@ -39,7 +38,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
 import tools
-from paths import DEFINITIONS
+from paths import definitions_text
 
 # Before MODEL is read below: HARNESS_MODEL and the provider key both live
 # in .env, and every entry point needs them, not just main().
@@ -64,11 +63,10 @@ if ":" not in MODEL:
         "filesystem and shell tools stay enabled."
     )
 PROVIDER = MODEL.split(":", 1)[0]
-INSTRUCTIONS = Path(__file__).resolve().parent / "instructions.md"
-# Agreed cohort rules and bands. Small and needed on every question, so it
-# rides in the prompt. Per-table notes are the opposite - 18 files, most of
-# them irrelevant to any one question - so those load on demand through
-# describe_schema instead.
+# Dataset instructions plus agreed cohort rules. Small and needed on every
+# question, so they ride in the prompt. Per-table notes are the opposite -
+# most of them irrelevant to any one question - so those load on demand
+# through describe_schema instead.
 
 # Deep Agents ships these and `tools=` is purely additive - it never removes
 # them. `excluded_middleware` cannot drop FilesystemMiddleware or
@@ -105,10 +103,12 @@ _strip_builtin_tools()
 
 
 def system_prompt() -> str:
-    parts = [INSTRUCTIONS.read_text(encoding="utf-8")]
-    if DEFINITIONS.is_file():
-        parts.append(DEFINITIONS.read_text(encoding="utf-8"))
-    return "\n\n".join(parts)
+    text = definitions_text()
+    if not text:
+        raise FileNotFoundError(
+            "No layout definitions files found. Check DATASET and layout.json."
+        )
+    return text
 
 
 def build_agent(

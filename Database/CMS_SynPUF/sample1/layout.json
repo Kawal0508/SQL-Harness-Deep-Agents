@@ -1,0 +1,10 @@
+{
+  "profile": "tools_cms",
+  "definitions": [
+    "knowledge/metrics.yml",
+    "knowledge/rules.md",
+    "knowledge/codesets/icd9_chf.txt"
+  ],
+  "tables": "knowledge/glossary.md",
+  "eval": "eval_set.yaml"
+}

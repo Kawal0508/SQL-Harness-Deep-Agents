@@ -1,0 +1,1468 @@
+# =============================================================
+# DE-SynPUF NL-to-SQL Evaluation Set  v0.1
+#
+# Data:    DE-SynPUF Sample 1 (2008-2010)
+# Dialect: DuckDB
+# Tables:  bene_2008 / bene_2009 / bene_2010 / inpatient /
+#          outpatient / carrier / pde
+# Dates:   CHAR(8) 'YYYYMMDD' strings.
+#          Parse with strptime(col, '%Y%m%d')::DATE.
+# Year:    If the question names a year, gold uses that year.
+#          If it does not, gold uses the full extract (2008-2010):
+#          unique people across bene_*, attributes from the latest
+#          year they appear, claims unfiltered.
+#
+# How to use:
+#   1. Verify column names against the actual CSV headers
+#   2. Run each gold_sql, fill the result into gold_answer
+#      (currently USER_INPUT)
+#   3. Run wrong_sql, fill the result in as the key of
+#      common_wrong_answers
+#   4. If wrong_sql returns the same value as gold_answer, the
+#      case does not exercise its trap -> revise or drop it
+#
+# Fields:
+#   tier          difficulty layer
+#   traps         what this case tests (report aggregates by this)
+#   gold_sql      reference SQL
+#   gold_answer   reference value  <- you fill this in
+#   answer_type   scalar / table
+#   tolerance     numeric tolerance
+#   wrong_sql     plausible wrong query (validates the case)
+#   notes         definition notes / items to confirm with mentor
+# =============================================================
+
+meta:
+  version: "0.1"
+  dataset: "DE-SynPUF Sample 1"
+  dialect: duckdb
+  date_format: "CHAR(8) YYYYMMDD"
+  total_cases: 70
+  data_path: "data/CMS_DE_SynPUF/sample1"
+  db_path: "data/CMS_DE_SynPUF/sample1/synpuf.duckdb" 
+  row_counts:                                   
+    bene_2008: 116352
+    bene_2009: 114538
+    bene_2010: 112754
+    inpatient: 66773
+    outpatient: 790790
+    carrier: 4741335
+    pde: 5552421
+
+
+# =============================================================
+# L1 — Single-table queries (14 cases)
+# Target: >90% pass. Below that points to a basic problem in
+# schema injection rather than model capability.
+# =============================================================
+
+- id: L1-001
+  tier: simple
+  question: "How many beneficiaries were enrolled in 2009?"
+  gold_sql: |
+    SELECT COUNT(*) FROM bene_2009;
+  gold_answer: 114538
+  answer_type: scalar
+  tolerance: 0
+  traps: []
+
+- id: L1-002
+  tier: simple
+  question: "How many male and female beneficiaries are there?"
+  gold_sql: |
+    SELECT BENE_SEX_IDENT_CD, COUNT(*)
+    FROM (
+      SELECT DESYNPUF_ID, BENE_SEX_IDENT_CD
+      FROM (
+        SELECT DESYNPUF_ID, BENE_SEX_IDENT_CD, 2010 AS yr FROM bene_2010
+        UNION ALL SELECT DESYNPUF_ID, BENE_SEX_IDENT_CD, 2009 FROM bene_2009
+        UNION ALL SELECT DESYNPUF_ID, BENE_SEX_IDENT_CD, 2008 FROM bene_2008
+      )
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY DESYNPUF_ID ORDER BY yr DESC) = 1
+    )
+    GROUP BY 1 ORDER BY 1;
+  gold_answer: USER_INPUT
+  answer_type: table
+  traps: []
+  notes: "Check the codebook for BENE_SEX_IDENT_CD encoding (typically 1=male, 2=female)"
+
+- id: L1-003
+  tier: simple
+  question: "How many inpatient claims are there in total?"
+  gold_sql: |
+    SELECT COUNT(*) FROM inpatient;
+  gold_answer: 66773
+  answer_type: scalar
+  tolerance: 0
+  traps: []
+
+- id: L1-004
+  tier: simple
+  question: "What are the 10 inpatient claims with the highest payment amounts?"
+  gold_sql: |
+    SELECT CLM_ID, DESYNPUF_ID, CLM_PMT_AMT
+    FROM inpatient
+    ORDER BY CLM_PMT_AMT DESC
+    LIMIT 10;
+  gold_answer: USER_INPUT
+  answer_type: table
+  traps: []
+
+- id: L1-005
+  tier: simple
+  question: "What is the total payment amount across all inpatient claims?"
+  gold_sql: |
+    SELECT SUM(CLM_PMT_AMT) FROM inpatient;
+  gold_answer: 639260180.0
+  answer_type: scalar
+  tolerance: 0.01
+  traps: []
+
+- id: L1-006
+  tier: simple
+  question: "How many beneficiaries have a recorded date of death?"
+  gold_sql: |
+    SELECT COUNT(*) FROM (
+      SELECT DESYNPUF_ID FROM bene_2008 WHERE BENE_DEATH_DT IS NOT NULL
+      UNION
+      SELECT DESYNPUF_ID FROM bene_2009 WHERE BENE_DEATH_DT IS NOT NULL
+      UNION
+      SELECT DESYNPUF_ID FROM bene_2010 WHERE BENE_DEATH_DT IS NOT NULL
+    );
+  gold_answer: 5461
+  answer_type: scalar
+  tolerance: 0
+  traps: []
+
+- id: L1-007
+  tier: simple
+  question: "How many distinct DRG codes appear in the data?"
+  gold_sql: |
+    SELECT COUNT(DISTINCT CLM_DRG_CD) FROM inpatient;
+  gold_answer: 739
+  answer_type: scalar
+  tolerance: 0
+  traps: []
+
+- id: L1-008
+  tier: simple
+  question: "What are the 10 most common DRG codes?"
+  gold_sql: |
+    SELECT CLM_DRG_CD, COUNT(*) AS n
+    FROM inpatient
+    GROUP BY 1 ORDER BY n DESC
+    LIMIT 10;
+  gold_answer: USER_INPUT
+  answer_type: table
+  traps: []
+
+- id: L1-009
+  tier: simple
+  question: "How many prescription drug events are there?"
+  gold_sql: |
+    SELECT COUNT(*) FROM pde;
+  gold_answer: 5552421
+  answer_type: scalar
+  tolerance: 0
+  traps: []
+
+- id: L1-010
+  tier: simple
+  question: "What is the total prescription drug cost?"
+  gold_sql: |
+    SELECT SUM(TOT_RX_CST_AMT) FROM pde;
+  gold_answer: 340943210.0
+  answer_type: scalar
+  tolerance: 0.01
+  traps: []
+
+- id: L1-011
+  tier: simple
+  question: "How many states do the beneficiaries come from?"
+  gold_sql: |
+    SELECT COUNT(DISTINCT SP_STATE_CODE) FROM (
+      SELECT SP_STATE_CODE FROM bene_2008
+      UNION SELECT SP_STATE_CODE FROM bene_2009
+      UNION SELECT SP_STATE_CODE FROM bene_2010
+    );
+  gold_answer: 52
+  answer_type: scalar
+  tolerance: 0
+  traps: []
+
+- id: L1-012
+  tier: simple
+  question: "What is the longest length of stay in the data?"
+  gold_sql: |
+    SELECT MAX(CLM_UTLZTN_DAY_CNT) FROM inpatient;
+  gold_answer: 136
+  answer_type: scalar
+  tolerance: 0
+  traps: []
+
+- id: L1-013
+  tier: simple
+  question: "How many beneficiaries were flagged with ESRD in 2010?"
+  gold_sql: |
+    SELECT COUNT(*) FROM bene_2010 WHERE BENE_ESRD_IND = 'Y';
+  gold_answer: 8017
+  answer_type: scalar
+  tolerance: 0
+  traps: []
+  notes: "Check the codebook for the ESRD flag's value format — may be 'Y'/'0' rather than boolean"
+
+- id: L1-014
+  tier: simple
+  question: "What is the average payment amount on outpatient claims?"
+  gold_sql: |
+    SELECT AVG(CLM_PMT_AMT) FROM outpatient;
+  gold_answer: 283.9245691017843
+  answer_type: scalar
+  tolerance: 0.01
+  traps: []
+
+
+# =============================================================
+# L2 — Multi-table joins (18 cases)
+# =============================================================
+
+- id: L2-001
+  tier: join
+  question: "Among beneficiaries with diabetes, how many had an inpatient stay in 2009?"
+  gold_sql: |
+    SELECT COUNT(DISTINCT b.DESYNPUF_ID)
+    FROM bene_2009 b
+    JOIN inpatient i ON b.DESYNPUF_ID = i.DESYNPUF_ID
+    WHERE b.SP_DIABETES = 1
+      AND SUBSTRING(i.CLM_FROM_DT, 1, 4) = '2009';
+  gold_answer: 14417
+  answer_type: scalar
+  tolerance: 0
+  traps: [chronic_flag_encoding, distinct_person_vs_claim]
+  wrong_sql: |
+    -- Wrong: counts claims rather than people
+    SELECT COUNT(*)
+    FROM bene_2009 b JOIN inpatient i ON b.DESYNPUF_ID = i.DESYNPUF_ID
+    WHERE b.SP_DIABETES = 1 AND SUBSTRING(i.CLM_FROM_DT,1,4) = '2009';
+  common_wrong_answers:
+    USER_INPUT: "counted claims instead of people"
+  notes: "If SP_DIABETES is 1=yes / 2=no, then '>0' or '=1 OR =2' selects everyone"
+
+- id: L2-002
+  tier: join
+  question: "Show total inpatient payments by state, highest first."
+  gold_sql: |
+    WITH person AS (
+      SELECT DESYNPUF_ID, SP_STATE_CODE
+      FROM (
+        SELECT DESYNPUF_ID, SP_STATE_CODE, 2010 AS yr FROM bene_2010
+        UNION ALL SELECT DESYNPUF_ID, SP_STATE_CODE, 2009 FROM bene_2009
+        UNION ALL SELECT DESYNPUF_ID, SP_STATE_CODE, 2008 FROM bene_2008
+      )
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY DESYNPUF_ID ORDER BY yr DESC) = 1
+    )
+    SELECT p.SP_STATE_CODE, SUM(i.CLM_PMT_AMT) AS total
+    FROM inpatient i
+    JOIN person p ON i.DESYNPUF_ID = p.DESYNPUF_ID
+    GROUP BY 1 ORDER BY total DESC;
+  gold_answer: USER_INPUT
+  answer_type: table
+  traps: [year_alignment]
+
+- id: L2-003
+  tier: join
+  question: "How many people have both inpatient claims and prescription drug records?"
+  gold_sql: |
+    SELECT COUNT(*) FROM (
+      SELECT DESYNPUF_ID FROM inpatient
+      INTERSECT
+      SELECT DESYNPUF_ID FROM pde
+    ) t;
+  gold_answer: 36480
+  answer_type: scalar
+  tolerance: 0
+  traps: [distinct_person_vs_claim]
+
+- id: L2-004
+  tier: join
+  question: "How many beneficiaries appear in all three years (2008, 2009, 2010)?"
+  gold_sql: |
+    SELECT COUNT(*) FROM (
+      SELECT DESYNPUF_ID FROM bene_2008
+      INTERSECT SELECT DESYNPUF_ID FROM bene_2009
+      INTERSECT SELECT DESYNPUF_ID FROM bene_2010
+    ) t;
+  gold_answer: 112754
+  answer_type: scalar
+  tolerance: 0
+  traps: [cross_year_join_inflation]
+  wrong_sql: |
+    -- Wrong shape: three-way JOIN then COUNT(*). Happens to work
+    -- here but breaks as soon as claims tables enter the join.
+    SELECT COUNT(*)
+    FROM bene_2008 a
+    JOIN bene_2009 b ON a.DESYNPUF_ID = b.DESYNPUF_ID
+    JOIN bene_2010 c ON a.DESYNPUF_ID = c.DESYNPUF_ID;
+  notes: "Beneficiary tables are one row per person per year — cross-year joins are a shared trap source for later cases"
+
+- id: L2-005
+  tier: join
+  question: "Who are the 10 beneficiaries with the highest total inpatient payments, and what state is each in?"
+  gold_sql: |
+    WITH person AS (
+      SELECT DESYNPUF_ID, SP_STATE_CODE
+      FROM (
+        SELECT DESYNPUF_ID, SP_STATE_CODE, 2010 AS yr FROM bene_2010
+        UNION ALL SELECT DESYNPUF_ID, SP_STATE_CODE, 2009 FROM bene_2009
+        UNION ALL SELECT DESYNPUF_ID, SP_STATE_CODE, 2008 FROM bene_2008
+      )
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY DESYNPUF_ID ORDER BY yr DESC) = 1
+    )
+    SELECT p.DESYNPUF_ID, p.SP_STATE_CODE, SUM(i.CLM_PMT_AMT) AS total
+    FROM inpatient i
+    JOIN person p ON i.DESYNPUF_ID = p.DESYNPUF_ID
+    GROUP BY 1, 2 ORDER BY total DESC
+    LIMIT 10;
+  gold_answer: USER_INPUT
+  answer_type: table
+  traps: []
+
+- id: L2-006
+  tier: join
+  question: "What is the average age of beneficiaries who were hospitalized in 2009?"
+  gold_sql: |
+    SELECT AVG(2009 - CAST(SUBSTRING(b.BENE_BIRTH_DT, 1, 4) AS INT))
+    FROM bene_2009 b
+    WHERE b.DESYNPUF_ID IN (
+      SELECT DESYNPUF_ID FROM inpatient
+      WHERE SUBSTRING(CLM_FROM_DT, 1, 4) = '2009'
+    );
+  gold_answer: 73.42568105783018
+  answer_type: scalar
+  tolerance: 0.1
+  traps: [date_as_string]
+  notes: "Age definition: birth-year difference. Exact age needs month/day comparison — revise if the mentor wants precision"
+
+- id: L2-007
+  tier: join
+  question: "How many beneficiaries have inpatient claims but no outpatient claims?"
+  gold_sql: |
+    SELECT COUNT(*) FROM (
+      SELECT DESYNPUF_ID FROM inpatient
+      EXCEPT
+      SELECT DESYNPUF_ID FROM outpatient
+    ) t;
+  gold_answer: 1466
+  answer_type: scalar
+  tolerance: 0
+  traps: []
+
+- id: L2-008
+  tier: join
+  question: "What is the per-person prescription drug cost, broken out by sex?"
+  gold_sql: |
+    WITH person AS (
+      SELECT DESYNPUF_ID, BENE_SEX_IDENT_CD
+      FROM (
+        SELECT DESYNPUF_ID, BENE_SEX_IDENT_CD, 2010 AS yr FROM bene_2010
+        UNION ALL SELECT DESYNPUF_ID, BENE_SEX_IDENT_CD, 2009 FROM bene_2009
+        UNION ALL SELECT DESYNPUF_ID, BENE_SEX_IDENT_CD, 2008 FROM bene_2008
+      )
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY DESYNPUF_ID ORDER BY yr DESC) = 1
+    )
+    SELECT p.BENE_SEX_IDENT_CD,
+           SUM(d.TOT_RX_CST_AMT) / COUNT(DISTINCT p.DESYNPUF_ID) AS per_capita
+    FROM person p
+    LEFT JOIN pde d ON p.DESYNPUF_ID = d.DESYNPUF_ID
+    GROUP BY 1;
+  gold_answer: USER_INPUT
+  answer_type: table
+  traps: [denominator_all_vs_users, left_join_required]
+  wrong_sql: |
+    -- Wrong: INNER JOIN narrows the denominator to drug users only
+    SELECT b.BENE_SEX_IDENT_CD,
+           SUM(p.TOT_RX_CST_AMT) / COUNT(DISTINCT b.DESYNPUF_ID)
+    FROM bene_2009 b JOIN pde p ON b.DESYNPUF_ID = p.DESYNPUF_ID
+    GROUP BY 1;
+  common_wrong_answers:
+    USER_INPUT: "INNER JOIN dropped beneficiaries with no drug events from the denominator"
+  notes: "CONFIRM WITH MENTOR: does 'per person' default to all beneficiaries or only those with drug events?"
+
+- id: L2-009
+  tier: join
+  question: "Which 10 beneficiaries have the most carrier claims?"
+  gold_sql: |
+    SELECT DESYNPUF_ID, COUNT(*) AS n
+    FROM carrier
+    GROUP BY 1 ORDER BY n DESC
+    LIMIT 10;
+  gold_answer: USER_INPUT
+  answer_type: table
+  traps: []
+
+- id: L2-010
+  tier: join
+  question: "What are the total inpatient payments for beneficiaries who died?"
+  gold_sql: |
+    SELECT SUM(i.CLM_PMT_AMT)
+    FROM inpatient i
+    WHERE i.DESYNPUF_ID IN (
+      SELECT DESYNPUF_ID FROM bene_2008 WHERE BENE_DEATH_DT IS NOT NULL
+      UNION
+      SELECT DESYNPUF_ID FROM bene_2009 WHERE BENE_DEATH_DT IS NOT NULL
+      UNION
+      SELECT DESYNPUF_ID FROM bene_2010 WHERE BENE_DEATH_DT IS NOT NULL
+    );
+  gold_answer: 17924340.0
+  answer_type: scalar
+  tolerance: 0.01
+  traps: [null_semantics]
+
+- id: L2-011
+  tier: join
+  question: "How many outpatient visits do heart failure patients have?"
+  gold_sql: |
+    SELECT COUNT(*)
+    FROM outpatient o
+    WHERE o.DESYNPUF_ID IN (
+      SELECT DESYNPUF_ID FROM bene_2008 WHERE SP_CHF = 1
+      UNION
+      SELECT DESYNPUF_ID FROM bene_2009 WHERE SP_CHF = 1
+      UNION
+      SELECT DESYNPUF_ID FROM bene_2010 WHERE SP_CHF = 1
+    );
+  gold_answer: 631788
+  answer_type: scalar
+  tolerance: 0
+  traps: [chronic_flag_encoding]
+
+- id: L2-012
+  tier: join
+  question: "What is the diabetes prevalence rate by state?"
+  gold_sql: |
+    WITH person AS (
+      SELECT DESYNPUF_ID,
+             MAX(CASE WHEN SP_DIABETES = 1 THEN 1 ELSE 0 END) AS ever_dm,
+             arg_max(SP_STATE_CODE, yr) AS SP_STATE_CODE
+      FROM (
+        SELECT DESYNPUF_ID, SP_STATE_CODE, SP_DIABETES, 2010 AS yr FROM bene_2010
+        UNION ALL SELECT DESYNPUF_ID, SP_STATE_CODE, SP_DIABETES, 2009 FROM bene_2009
+        UNION ALL SELECT DESYNPUF_ID, SP_STATE_CODE, SP_DIABETES, 2008 FROM bene_2008
+      )
+      GROUP BY 1
+    )
+    SELECT SP_STATE_CODE,
+           SUM(ever_dm)::float / COUNT(*) AS rate
+    FROM person
+    GROUP BY 1 ORDER BY rate DESC;
+  gold_answer: USER_INPUT
+  answer_type: table
+  traps: [chronic_flag_encoding, integer_division]
+  wrong_sql: |
+    -- Wrong: integer division returns all zeros in Postgres
+    SELECT SP_STATE_CODE,
+           SUM(CASE WHEN SP_DIABETES = 1 THEN 1 ELSE 0 END) / COUNT(*)
+    FROM bene_2009 GROUP BY 1;
+
+- id: L2-013
+  tier: join
+  question: "What share of hospitalized patients also carry an ESRD flag?"
+  gold_sql: |
+    WITH hospitalized AS (
+      SELECT DISTINCT DESYNPUF_ID FROM inpatient
+    ),
+    person AS (
+      SELECT DESYNPUF_ID, BENE_ESRD_IND
+      FROM (
+        SELECT DESYNPUF_ID, BENE_ESRD_IND, 2010 AS yr FROM bene_2010
+        UNION ALL SELECT DESYNPUF_ID, BENE_ESRD_IND, 2009 FROM bene_2009
+        UNION ALL SELECT DESYNPUF_ID, BENE_ESRD_IND, 2008 FROM bene_2008
+      )
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY DESYNPUF_ID ORDER BY yr DESC) = 1
+    )
+    SELECT SUM(CASE WHEN p.BENE_ESRD_IND = 'Y' THEN 1 ELSE 0 END)::float
+             / COUNT(*) AS rate
+    FROM hospitalized h
+    JOIN person p ON h.DESYNPUF_ID = p.DESYNPUF_ID;
+  gold_answer: 0.13856537640094757
+  answer_type: scalar
+  tolerance: 0.0001
+  traps: [integer_division]
+
+- id: L2-014
+  tier: join
+  question: "For the 10 people with the highest drug spend, how many chronic conditions does each have?"
+  gold_sql: |
+    WITH top_spenders AS (
+      SELECT DESYNPUF_ID, SUM(TOT_RX_CST_AMT) AS rx
+      FROM pde GROUP BY 1 ORDER BY rx DESC LIMIT 10
+    )
+    SELECT t.DESYNPUF_ID, t.rx,
+           (CASE WHEN b.SP_ALZHDMTA = 1 THEN 1 ELSE 0 END
+          + CASE WHEN b.SP_CHF      = 1 THEN 1 ELSE 0 END
+          + CASE WHEN b.SP_CHRNKIDN = 1 THEN 1 ELSE 0 END
+          + CASE WHEN b.SP_CNCR     = 1 THEN 1 ELSE 0 END
+          + CASE WHEN b.SP_COPD     = 1 THEN 1 ELSE 0 END
+          + CASE WHEN b.SP_DEPRESSN = 1 THEN 1 ELSE 0 END
+          + CASE WHEN b.SP_DIABETES = 1 THEN 1 ELSE 0 END
+          + CASE WHEN b.SP_ISCHMCHT = 1 THEN 1 ELSE 0 END
+          + CASE WHEN b.SP_OSTEOPRS = 1 THEN 1 ELSE 0 END
+          + CASE WHEN b.SP_RA_OA    = 1 THEN 1 ELSE 0 END
+          + CASE WHEN b.SP_STRKETIA = 1 THEN 1 ELSE 0 END) AS n_chronic
+    FROM top_spenders t
+    JOIN (
+      SELECT DESYNPUF_ID, SP_ALZHDMTA, SP_CHF, SP_CHRNKIDN, SP_CNCR, SP_COPD,
+             SP_DEPRESSN, SP_DIABETES, SP_ISCHMCHT, SP_OSTEOPRS, SP_RA_OA, SP_STRKETIA
+      FROM (
+        SELECT *, 2010 AS yr FROM bene_2010
+        UNION ALL SELECT *, 2009 FROM bene_2009
+        UNION ALL SELECT *, 2008 FROM bene_2008
+      )
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY DESYNPUF_ID ORDER BY yr DESC) = 1
+    ) b ON t.DESYNPUF_ID = b.DESYNPUF_ID
+    ORDER BY t.rx DESC;
+  gold_answer: USER_INPUT
+  answer_type: table
+  traps: [chronic_flag_encoding, multi_column_aggregation]
+
+- id: L2-015
+  tier: join
+  question: "Which 10 facilities served the most distinct beneficiaries?"
+  gold_sql: |
+    SELECT PRVDR_NUM, COUNT(DISTINCT DESYNPUF_ID) AS n_patients
+    FROM inpatient
+    GROUP BY 1 ORDER BY n_patients DESC
+    LIMIT 10;
+  gold_answer: USER_INPUT
+  answer_type: table
+  traps: [distinct_person_vs_claim]
+
+- id: L2-016
+  tier: join
+  question: "What is the hospitalization rate for each age band (under 65, 65-74, 75-84, 85+)?"
+  gold_sql: |
+    WITH ages AS (
+      SELECT DESYNPUF_ID,
+             yr - CAST(SUBSTRING(BENE_BIRTH_DT, 1, 4) AS INT) AS age
+      FROM (
+        SELECT DESYNPUF_ID, BENE_BIRTH_DT, 2010 AS yr FROM bene_2010
+        UNION ALL SELECT DESYNPUF_ID, BENE_BIRTH_DT, 2009 FROM bene_2009
+        UNION ALL SELECT DESYNPUF_ID, BENE_BIRTH_DT, 2008 FROM bene_2008
+      )
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY DESYNPUF_ID ORDER BY yr DESC) = 1
+    ),
+    grp AS (
+      SELECT DESYNPUF_ID,
+             CASE WHEN age < 65 THEN '<65'
+                  WHEN age < 75 THEN '65-74'
+                  WHEN age < 85 THEN '75-84'
+                  ELSE '85+' END AS band
+      FROM ages
+    )
+    SELECT g.band,
+           COUNT(DISTINCT i.DESYNPUF_ID)::float / COUNT(DISTINCT g.DESYNPUF_ID) AS rate
+    FROM grp g
+    LEFT JOIN inpatient i
+      ON g.DESYNPUF_ID = i.DESYNPUF_ID
+    GROUP BY 1 ORDER BY 1;
+  gold_answer: USER_INPUT
+  answer_type: table
+  traps: [date_as_string, left_join_required, integer_division]
+
+- id: L2-017
+  tier: join
+  question: "How many beneficiaries had no claims of any kind in 2009 — no inpatient, outpatient, carrier, or drug events?"
+  gold_sql: |
+    SELECT COUNT(*)
+    FROM bene_2009 b
+    WHERE b.DESYNPUF_ID NOT IN (SELECT DESYNPUF_ID FROM inpatient  WHERE SUBSTRING(CLM_FROM_DT,1,4)='2009')
+      AND b.DESYNPUF_ID NOT IN (SELECT DESYNPUF_ID FROM outpatient WHERE SUBSTRING(CLM_FROM_DT,1,4)='2009')
+      AND b.DESYNPUF_ID NOT IN (SELECT DESYNPUF_ID FROM carrier    WHERE SUBSTRING(CLM_FROM_DT,1,4)='2009')
+      AND b.DESYNPUF_ID NOT IN (SELECT DESYNPUF_ID FROM pde        WHERE SUBSTRING(SRVC_DT,1,4)='2009');
+  gold_answer: 12776
+  answer_type: scalar
+  tolerance: 0
+  traps: [not_in_null_trap, multi_source]
+  notes: "NOT IN against a subquery containing NULL returns an empty set — a classic trap. Use NOT EXISTS if the column is nullable"
+
+- id: L2-018
+  tier: join
+  question: "Among 2009 inpatients, how many had an outpatient visit in the 30 days before admission?"
+  gold_sql: |
+    SELECT COUNT(DISTINCT i.DESYNPUF_ID)
+    FROM inpatient i
+    WHERE SUBSTRING(i.CLM_FROM_DT, 1, 4) = '2009'
+      AND EXISTS (
+        SELECT 1 FROM outpatient o
+        WHERE o.DESYNPUF_ID = i.DESYNPUF_ID
+          AND strptime(o.CLM_FROM_DT, '%Y%m%d')::DATE
+              BETWEEN strptime(i.CLM_FROM_DT, '%Y%m%d')::DATE - INTERVAL 30 DAY
+                  AND strptime(i.CLM_FROM_DT, '%Y%m%d')::DATE
+      );
+  gold_answer: 7038
+  answer_type: scalar
+  tolerance: 0
+  traps: [date_as_string, window_boundary]
+
+
+# =============================================================
+# L3 — Aggregation semantics (24 cases)  *** CORE LAYER ***
+# These look like L2 cases but carry an implicit correct
+# definition. Wrong answers don't error, aren't empty, and look
+# entirely reasonable.
+# =============================================================
+
+# --- Group A: denominator definition (5 cases) ---
+
+- id: L3-A01
+  tier: aggregation_semantics
+  question: "What was the per-person inpatient payment in 2009?"
+  gold_sql: |
+    SELECT SUM(i.CLM_PMT_AMT) / COUNT(DISTINCT b.DESYNPUF_ID)
+    FROM bene_2009 b
+    LEFT JOIN inpatient i
+      ON b.DESYNPUF_ID = i.DESYNPUF_ID
+     AND SUBSTRING(i.CLM_FROM_DT, 1, 4) = '2009';
+  gold_answer: 2137.3716146606366
+  answer_type: scalar
+  tolerance: 0.01
+  traps: [denominator_all_vs_users]
+  wrong_sql: |
+    -- Wrong: denominator becomes "people who were hospitalized"
+    SELECT SUM(CLM_PMT_AMT) / COUNT(DISTINCT DESYNPUF_ID)
+    FROM inpatient WHERE SUBSTRING(CLM_FROM_DT,1,4)='2009';
+  common_wrong_answers:
+    USER_INPUT: "used hospitalized count as denominator instead of all beneficiaries"
+  notes: "CONFIRM WITH MENTOR: what does 'per person' default to here?"
+
+- id: L3-A02
+  tier: aggregation_semantics
+  question: "Using all enrolled beneficiaries as the denominator, what was the per-person inpatient payment in 2009?"
+  gold_sql: |
+    SELECT SUM(i.CLM_PMT_AMT) / COUNT(DISTINCT b.DESYNPUF_ID)
+    FROM bene_2009 b
+    LEFT JOIN inpatient i
+      ON b.DESYNPUF_ID = i.DESYNPUF_ID
+     AND SUBSTRING(i.CLM_FROM_DT, 1, 4) = '2009';
+  gold_answer: 2137.3716146606366
+  answer_type: scalar
+  tolerance: 0.01
+  traps: [denominator_all_vs_users]
+  notes: "PAIRED with L3-A01. Compare accuracy when the definition is stated vs left implicit"
+
+- id: L3-A03
+  tier: aggregation_semantics
+  question: "Among beneficiaries continuously enrolled for all of 2009, what was the hospitalization rate?"
+  gold_sql: |
+    SELECT COUNT(DISTINCT i.DESYNPUF_ID)::float
+           / COUNT(DISTINCT b.DESYNPUF_ID) AS rate
+    FROM bene_2009 b
+    LEFT JOIN inpatient i
+      ON b.DESYNPUF_ID = i.DESYNPUF_ID
+     AND SUBSTRING(i.CLM_FROM_DT, 1, 4) = '2009'
+    WHERE b.BENE_HI_CVRAGE_TOT_MONS = 12;
+  gold_answer: 0.1746637523174286
+  answer_type: scalar
+  tolerance: 0.0001
+  traps: [enrollment_denominator, integer_division]
+  wrong_sql: |
+    -- Wrong: ignores the continuous-enrollment condition
+    SELECT COUNT(DISTINCT i.DESYNPUF_ID)::float / COUNT(DISTINCT b.DESYNPUF_ID)
+    FROM bene_2009 b
+    LEFT JOIN inpatient i ON b.DESYNPUF_ID = i.DESYNPUF_ID;
+  common_wrong_answers:
+    USER_INPUT: "denominator not restricted to continuous enrollment"
+
+- id: L3-A04
+  tier: aggregation_semantics
+  question: "What was the hospitalization rate in 2009?"
+  gold_sql: |
+    SELECT COUNT(DISTINCT i.DESYNPUF_ID)::float
+           / COUNT(DISTINCT b.DESYNPUF_ID) AS rate
+    FROM bene_2009 b
+    LEFT JOIN inpatient i
+      ON b.DESYNPUF_ID = i.DESYNPUF_ID
+     AND SUBSTRING(i.CLM_FROM_DT, 1, 4) = '2009'
+    WHERE b.BENE_HI_CVRAGE_TOT_MONS = 12;
+  gold_answer: 0.1746637523174286
+  answer_type: scalar
+  tolerance: 0.0001
+  traps: [enrollment_denominator]
+  notes: "PAIRED with L3-A03: does the agent apply the enrollment restriction when not told to?"
+
+- id: L3-A05
+  tier: aggregation_semantics
+  question: "Excluding HMO enrollees, what was the per-person inpatient payment in 2009?"
+  gold_sql: |
+    SELECT SUM(i.CLM_PMT_AMT) / COUNT(DISTINCT b.DESYNPUF_ID)
+    FROM bene_2009 b
+    LEFT JOIN inpatient i
+      ON b.DESYNPUF_ID = i.DESYNPUF_ID
+     AND SUBSTRING(i.CLM_FROM_DT, 1, 4) = '2009'
+    WHERE b.BENE_HMO_CVRAGE_TOT_MONS = 0;
+  gold_answer: 2109.4829327159887
+  answer_type: scalar
+  tolerance: 0.01
+  traps: [enrollment_denominator]
+  notes: "HMO enrollees have incomplete FFS claims, so real analyses normally exclude them"
+
+
+# --- Group B: deduplication and grain (5 cases) ---
+
+- id: L3-B01
+  tier: aggregation_semantics
+  question: "How many hospital stays were there in 2009?"
+  gold_sql: |
+    SELECT COUNT(*) FROM inpatient
+    WHERE SUBSTRING(CLM_ADMSN_DT, 1, 4) = '2009';
+  gold_answer: 25264
+  answer_type: scalar
+  tolerance: 0
+  traps: [claim_vs_stay]
+  wrong_sql: |
+    -- Wrong: counts people rather than stays
+    SELECT COUNT(DISTINCT DESYNPUF_ID) FROM inpatient
+    WHERE SUBSTRING(CLM_ADMSN_DT,1,4)='2009';
+  common_wrong_answers:
+    USER_INPUT: "counted people instead of stays"
+  notes: "CONFIRM WITH MENTOR: 'stays' vs 'patients' is the most frequent wording ambiguity"
+
+- id: L3-B02
+  tier: aggregation_semantics
+  question: "How many people were hospitalized in 2009?"
+  gold_sql: |
+    SELECT COUNT(DISTINCT DESYNPUF_ID) FROM inpatient
+    WHERE SUBSTRING(CLM_ADMSN_DT, 1, 4) = '2009';
+  gold_answer: 18834
+  answer_type: scalar
+  tolerance: 0
+  traps: [claim_vs_stay]
+  notes: "PAIRED with L3-B01 — the two differ by a single word"
+
+- id: L3-B03
+  tier: aggregation_semantics
+  question: "After merging transfer claims into single stays, how many hospitalizations were there in 2009?"
+  gold_sql: |
+    WITH ordered AS (
+      SELECT DESYNPUF_ID,
+             strptime(CLM_ADMSN_DT, '%Y%m%d')::DATE      AS adm,
+             strptime(NCH_BENE_DSCHRG_DT, '%Y%m%d')::DATE AS dis,
+             LAG(strptime(NCH_BENE_DSCHRG_DT, '%Y%m%d')::DATE)
+               OVER (PARTITION BY DESYNPUF_ID
+                     ORDER BY strptime(CLM_ADMSN_DT, '%Y%m%d')::DATE) AS prev_dis
+      FROM inpatient
+      WHERE SUBSTRING(CLM_ADMSN_DT, 1, 4) = '2009'
+    )
+    SELECT COUNT(*)
+    FROM ordered
+    WHERE prev_dis IS NULL OR adm > prev_dis + INTERVAL 1 DAY;
+  gold_answer: 24662
+  answer_type: scalar
+  tolerance: 0
+  traps: [transfer_merge, window_function]
+  wrong_sql: |
+    SELECT COUNT(*) FROM inpatient WHERE SUBSTRING(CLM_ADMSN_DT,1,4)='2009';
+  common_wrong_answers:
+    USER_INPUT: "no transfer merge — counted raw claims"
+  notes: "Merge rule used: readmission on the day after discharge counts as the same stay. Confirm the threshold with the mentor"
+
+- id: L3-B04
+  tier: aggregation_semantics
+  question: "On average, how many carrier claims does a beneficiary have?"
+  gold_sql: |
+    SELECT COUNT(*)::float / COUNT(DISTINCT DESYNPUF_ID) FROM carrier;
+  gold_answer: 48.07388687133789
+  answer_type: scalar
+  tolerance: 0.01
+  traps: [denominator_all_vs_users, integer_division]
+  notes: "Denominator here is people with carrier claims. Add a paired case that explicitly says all beneficiaries"
+
+- id: L3-B05
+  tier: aggregation_semantics
+  question: "What were the total inpatient days in 2009?"
+  gold_sql: |
+    SELECT SUM(CLM_UTLZTN_DAY_CNT) FROM inpatient
+    WHERE SUBSTRING(CLM_ADMSN_DT, 1, 4) = '2009';
+  gold_answer: 141319
+  answer_type: scalar
+  tolerance: 0
+  traps: [claim_vs_stay, null_semantics]
+  wrong_sql: |
+    -- Wrong: date subtraction double-counts transfer claims
+    SELECT SUM(date_diff(
+             'day',
+             strptime(CLM_ADMSN_DT, '%Y%m%d')::DATE,
+             strptime(NCH_BENE_DSCHRG_DT, '%Y%m%d')::DATE
+           ))
+    FROM inpatient WHERE SUBSTRING(CLM_ADMSN_DT,1,4)='2009';
+
+
+# --- Group C: NULL semantics (4 cases) ---
+
+- id: L3-C01
+  tier: aggregation_semantics
+  question: "What was the average length of stay in 2009?"
+  gold_sql: |
+    SELECT AVG(CLM_UTLZTN_DAY_CNT) FROM inpatient
+    WHERE SUBSTRING(CLM_ADMSN_DT, 1, 4) = '2009'
+      AND CLM_UTLZTN_DAY_CNT IS NOT NULL;
+  gold_answer: 5.601006698109469
+  answer_type: scalar
+  tolerance: 0.01
+  traps: [null_semantics]
+  wrong_sql: |
+    -- Wrong: treats NULL as zero
+    SELECT SUM(COALESCE(CLM_UTLZTN_DAY_CNT,0))::float / COUNT(*)
+    FROM inpatient WHERE SUBSTRING(CLM_ADMSN_DT,1,4)='2009';
+  common_wrong_answers:
+    USER_INPUT: "counted NULL as 0, dragging the average down"
+  notes: "PREREQ: run SELECT COUNT(*), COUNT(CLM_UTLZTN_DAY_CNT) FROM inpatient. If equal, there are no NULLs and this case is void"
+
+- id: L3-C02
+  tier: aggregation_semantics
+  question: "How many inpatient claims have no discharge date recorded?"
+  gold_sql: |
+    SELECT COUNT(*) FROM inpatient WHERE NCH_BENE_DSCHRG_DT IS NULL;
+  gold_answer: 0
+  answer_type: scalar
+  tolerance: 0
+  traps: [null_semantics]
+  notes: "PREREQ: if this returns 0, swap the column (try CLM_DRG_CD or a secondary diagnosis slot)"
+
+- id: L3-C03
+  tier: aggregation_semantics
+  question: "How many inpatient claims have a principal diagnosis other than 428 (heart failure)?"
+  gold_sql: |
+    SELECT COUNT(*) FROM inpatient
+    WHERE ICD9_DGNS_CD_1 IS NULL OR ICD9_DGNS_CD_1 NOT LIKE '428%';
+  gold_answer: 63630
+  answer_type: scalar
+  tolerance: 0
+  traps: [null_semantics, not_equal_excludes_null]
+  wrong_sql: |
+    -- Wrong: NOT LIKE silently drops NULL rows
+    SELECT COUNT(*) FROM inpatient WHERE ICD9_DGNS_CD_1 NOT LIKE '428%';
+  common_wrong_answers:
+    USER_INPUT: "NOT LIKE silently excluded NULL rows"
+
+- id: L3-C04
+  tier: aggregation_semantics
+  question: "On average, how many diagnosis codes are filled in on an inpatient claim?"
+  gold_sql: |
+    SELECT AVG(
+      (CASE WHEN ICD9_DGNS_CD_1  IS NOT NULL THEN 1 ELSE 0 END)
+    + (CASE WHEN ICD9_DGNS_CD_2  IS NOT NULL THEN 1 ELSE 0 END)
+    + (CASE WHEN ICD9_DGNS_CD_3  IS NOT NULL THEN 1 ELSE 0 END)
+    + (CASE WHEN ICD9_DGNS_CD_4  IS NOT NULL THEN 1 ELSE 0 END)
+    + (CASE WHEN ICD9_DGNS_CD_5  IS NOT NULL THEN 1 ELSE 0 END)
+    + (CASE WHEN ICD9_DGNS_CD_6  IS NOT NULL THEN 1 ELSE 0 END)
+    + (CASE WHEN ICD9_DGNS_CD_7  IS NOT NULL THEN 1 ELSE 0 END)
+    + (CASE WHEN ICD9_DGNS_CD_8  IS NOT NULL THEN 1 ELSE 0 END)
+    + (CASE WHEN ICD9_DGNS_CD_9  IS NOT NULL THEN 1 ELSE 0 END)
+    + (CASE WHEN ICD9_DGNS_CD_10 IS NOT NULL THEN 1 ELSE 0 END)
+    )::float
+    FROM inpatient;
+  gold_answer: 8.046231269836426
+  answer_type: scalar
+  tolerance: 0.01
+  traps: [null_semantics, wide_table]
+
+
+# --- Group D: date typing (4 cases) ---
+
+- id: L3-D01
+  tier: aggregation_semantics
+  question: "How many inpatient stays spanned the end of 2009?"
+  gold_sql: |
+    SELECT COUNT(*) FROM inpatient
+    WHERE strptime(CLM_ADMSN_DT, '%Y%m%d')::DATE      <= DATE '2009-12-31'
+      AND strptime(NCH_BENE_DSCHRG_DT, '%Y%m%d')::DATE >  DATE '2009-12-31';
+  gold_answer: 348
+  answer_type: scalar
+  tolerance: 0
+  traps: [date_as_string, year_alignment]
+
+- id: L3-D02
+  tier: aggregation_semantics
+  question: "How many hospital stays were there in each month of 2009?"
+  gold_sql: |
+    SELECT SUBSTRING(CLM_ADMSN_DT, 5, 2) AS mon, COUNT(*)
+    FROM inpatient
+    WHERE SUBSTRING(CLM_ADMSN_DT, 1, 4) = '2009'
+    GROUP BY 1 ORDER BY 1;
+  gold_answer: USER_INPUT
+  answer_type: table
+  traps: [date_as_string]
+
+- id: L3-D03
+  tier: aggregation_semantics
+  question: "How many stays lasted more than 14 days from admission to discharge?"
+  gold_sql: |
+    SELECT COUNT(*) FROM inpatient
+    WHERE date_diff(
+            'day',
+            strptime(CLM_ADMSN_DT, '%Y%m%d')::DATE,
+            strptime(NCH_BENE_DSCHRG_DT, '%Y%m%d')::DATE
+          ) > 14;
+  gold_answer: 4604
+  answer_type: scalar
+  tolerance: 0
+  traps: [date_as_string, date_arithmetic]
+  wrong_sql: |
+    -- Wrong: arithmetic directly on YYYYMMDD
+    SELECT COUNT(*) FROM inpatient
+    WHERE CAST(NCH_BENE_DSCHRG_DT AS INT) - CAST(CLM_ADMSN_DT AS INT) > 14;
+  common_wrong_answers:
+    USER_INPUT: "no date cast — subtracted YYYYMMDD values directly"
+  notes: "Cross-month cases go badly wrong, e.g. 20090301 - 20090225 = 76"
+
+- id: L3-D04
+  tier: aggregation_semantics
+  question: "For beneficiaries who died, how much inpatient payment occurred before their death?"
+  gold_sql: |
+    WITH dead AS (
+      SELECT DESYNPUF_ID, MAX(BENE_DEATH_DT) AS BENE_DEATH_DT
+      FROM (
+        SELECT DESYNPUF_ID, BENE_DEATH_DT FROM bene_2008 WHERE BENE_DEATH_DT IS NOT NULL
+        UNION ALL SELECT DESYNPUF_ID, BENE_DEATH_DT FROM bene_2009 WHERE BENE_DEATH_DT IS NOT NULL
+        UNION ALL SELECT DESYNPUF_ID, BENE_DEATH_DT FROM bene_2010 WHERE BENE_DEATH_DT IS NOT NULL
+      )
+      GROUP BY 1
+    )
+    SELECT SUM(i.CLM_PMT_AMT)
+    FROM dead d
+    JOIN inpatient i ON d.DESYNPUF_ID = i.DESYNPUF_ID
+    WHERE strptime(i.CLM_FROM_DT, '%Y%m%d')::DATE
+          <= strptime(d.BENE_DEATH_DT, '%Y%m%d')::DATE;
+  gold_answer: 17858340.0
+  answer_type: scalar
+  tolerance: 0.01
+  traps: [date_as_string, null_semantics]
+
+
+# --- Group E: wide-table UNPIVOT (5 cases) ---
+
+- id: L3-E01
+  tier: aggregation_semantics
+  question: "How many carrier claims include HCPCS code 99213?"
+  gold_sql: |
+    SELECT COUNT(*) FROM carrier
+    WHERE HCPCS_CD_1  = '99213' OR HCPCS_CD_2  = '99213'
+       OR HCPCS_CD_3  = '99213' OR HCPCS_CD_4  = '99213'
+       OR HCPCS_CD_5  = '99213' OR HCPCS_CD_6  = '99213'
+       OR HCPCS_CD_7  = '99213' OR HCPCS_CD_8  = '99213'
+       OR HCPCS_CD_9  = '99213' OR HCPCS_CD_10 = '99213'
+       OR HCPCS_CD_11 = '99213' OR HCPCS_CD_12 = '99213'
+       OR HCPCS_CD_13 = '99213';
+  gold_answer: 594771
+  answer_type: scalar
+  tolerance: 0
+  traps: [wide_table_slots]
+  wrong_sql: |
+    -- Wrong: only checks the first slot
+    SELECT COUNT(*) FROM carrier WHERE HCPCS_CD_1 = '99213';
+  common_wrong_answers:
+    USER_INPUT: "only searched HCPCS_CD_1, missed the other 12 slots"
+  notes: "PREREQ: if 99213 doesn't appear in this sample, run L3-E03 first and substitute a high-frequency code"
+
+- id: L3-E02
+  tier: aggregation_semantics
+  question: "What is the total payment for HCPCS code 99213?"
+  gold_sql: |
+    WITH lines AS (
+      SELECT UNNEST([
+               c.HCPCS_CD_1, c.HCPCS_CD_2, c.HCPCS_CD_3, c.HCPCS_CD_4,
+               c.HCPCS_CD_5, c.HCPCS_CD_6, c.HCPCS_CD_7, c.HCPCS_CD_8,
+               c.HCPCS_CD_9, c.HCPCS_CD_10, c.HCPCS_CD_11, c.HCPCS_CD_12,
+               c.HCPCS_CD_13
+             ]) AS hcpcs,
+             UNNEST([
+               c.LINE_NCH_PMT_AMT_1, c.LINE_NCH_PMT_AMT_2, c.LINE_NCH_PMT_AMT_3,
+               c.LINE_NCH_PMT_AMT_4, c.LINE_NCH_PMT_AMT_5, c.LINE_NCH_PMT_AMT_6,
+               c.LINE_NCH_PMT_AMT_7, c.LINE_NCH_PMT_AMT_8, c.LINE_NCH_PMT_AMT_9,
+               c.LINE_NCH_PMT_AMT_10, c.LINE_NCH_PMT_AMT_11,
+               c.LINE_NCH_PMT_AMT_12, c.LINE_NCH_PMT_AMT_13
+             ]) AS pmt
+      FROM carrier c
+    )
+    SELECT SUM(pmt) FROM lines WHERE hcpcs = '99213';
+  gold_answer: 32047180.0
+  answer_type: scalar
+  tolerance: 0.01
+  traps: [wide_table_unpivot, slot_alignment]
+  wrong_sql: |
+    -- Wrong: filters claims containing 99213, then sums all 13 line amounts
+    SELECT SUM(COALESCE(LINE_NCH_PMT_AMT_1,0)+COALESCE(LINE_NCH_PMT_AMT_2,0)
+             + COALESCE(LINE_NCH_PMT_AMT_3,0)+COALESCE(LINE_NCH_PMT_AMT_4,0)
+             + COALESCE(LINE_NCH_PMT_AMT_5,0)+COALESCE(LINE_NCH_PMT_AMT_6,0)
+             + COALESCE(LINE_NCH_PMT_AMT_7,0)+COALESCE(LINE_NCH_PMT_AMT_8,0)
+             + COALESCE(LINE_NCH_PMT_AMT_9,0)+COALESCE(LINE_NCH_PMT_AMT_10,0)
+             + COALESCE(LINE_NCH_PMT_AMT_11,0)+COALESCE(LINE_NCH_PMT_AMT_12,0)
+             + COALESCE(LINE_NCH_PMT_AMT_13,0))
+    FROM carrier
+    WHERE HCPCS_CD_1='99213' OR HCPCS_CD_2='99213' OR HCPCS_CD_3='99213'
+       OR HCPCS_CD_4='99213' OR HCPCS_CD_5='99213' OR HCPCS_CD_6='99213'
+       OR HCPCS_CD_7='99213' OR HCPCS_CD_8='99213' OR HCPCS_CD_9='99213'
+       OR HCPCS_CD_10='99213' OR HCPCS_CD_11='99213' OR HCPCS_CD_12='99213'
+       OR HCPCS_CD_13='99213';
+  common_wrong_answers:
+    USER_INPUT: "slots not aligned — attributed every line on the claim to 99213"
+  notes: "HIGHEST-SIGNAL CASE IN THIS GROUP. The wrong answer typically runs 3-5x the correct value"
+
+- id: L3-E03
+  tier: aggregation_semantics
+  question: "Which 10 HCPCS codes had the highest total payments in 2009, and how much each?"
+  gold_sql: |
+    WITH lines AS (
+      SELECT UNNEST([
+               c.HCPCS_CD_1, c.HCPCS_CD_2, c.HCPCS_CD_3, c.HCPCS_CD_4,
+               c.HCPCS_CD_5, c.HCPCS_CD_6, c.HCPCS_CD_7, c.HCPCS_CD_8,
+               c.HCPCS_CD_9, c.HCPCS_CD_10, c.HCPCS_CD_11, c.HCPCS_CD_12,
+               c.HCPCS_CD_13
+             ]) AS hcpcs,
+             UNNEST([
+               c.LINE_NCH_PMT_AMT_1, c.LINE_NCH_PMT_AMT_2, c.LINE_NCH_PMT_AMT_3,
+               c.LINE_NCH_PMT_AMT_4, c.LINE_NCH_PMT_AMT_5, c.LINE_NCH_PMT_AMT_6,
+               c.LINE_NCH_PMT_AMT_7, c.LINE_NCH_PMT_AMT_8, c.LINE_NCH_PMT_AMT_9,
+               c.LINE_NCH_PMT_AMT_10, c.LINE_NCH_PMT_AMT_11,
+               c.LINE_NCH_PMT_AMT_12, c.LINE_NCH_PMT_AMT_13
+             ]) AS pmt
+      FROM carrier c
+      WHERE SUBSTRING(c.CLM_FROM_DT, 1, 4) = '2009'
+    )
+    SELECT hcpcs, SUM(pmt) AS total
+    FROM lines
+    WHERE hcpcs IS NOT NULL
+    GROUP BY 1 ORDER BY total DESC LIMIT 10;
+  gold_answer: USER_INPUT
+  answer_type: table
+  traps: [wide_table_unpivot, slot_alignment]
+  notes: "No shortcut: the table must be fully unpivoted before GROUP BY"
+
+- id: L3-E04
+  tier: aggregation_semantics
+  question: "On average, how many line items does a carrier claim have?"
+  gold_sql: |
+    SELECT AVG(
+      (CASE WHEN HCPCS_CD_1  IS NOT NULL THEN 1 ELSE 0 END)
+    + (CASE WHEN HCPCS_CD_2  IS NOT NULL THEN 1 ELSE 0 END)
+    + (CASE WHEN HCPCS_CD_3  IS NOT NULL THEN 1 ELSE 0 END)
+    + (CASE WHEN HCPCS_CD_4  IS NOT NULL THEN 1 ELSE 0 END)
+    + (CASE WHEN HCPCS_CD_5  IS NOT NULL THEN 1 ELSE 0 END)
+    + (CASE WHEN HCPCS_CD_6  IS NOT NULL THEN 1 ELSE 0 END)
+    + (CASE WHEN HCPCS_CD_7  IS NOT NULL THEN 1 ELSE 0 END)
+    + (CASE WHEN HCPCS_CD_8  IS NOT NULL THEN 1 ELSE 0 END)
+    + (CASE WHEN HCPCS_CD_9  IS NOT NULL THEN 1 ELSE 0 END)
+    + (CASE WHEN HCPCS_CD_10 IS NOT NULL THEN 1 ELSE 0 END)
+    + (CASE WHEN HCPCS_CD_11 IS NOT NULL THEN 1 ELSE 0 END)
+    + (CASE WHEN HCPCS_CD_12 IS NOT NULL THEN 1 ELSE 0 END)
+    + (CASE WHEN HCPCS_CD_13 IS NOT NULL THEN 1 ELSE 0 END)
+    )::float
+    FROM carrier;
+  gold_answer: 1.8657037019729614
+  answer_type: scalar
+  tolerance: 0.01
+  traps: [wide_table, null_semantics]
+  notes: "COUNT is useless on a wide table — non-null slots must be counted explicitly"
+
+- id: L3-E05
+  tier: aggregation_semantics
+  question: "What are the 5 most common services (HCPCS) received by diabetic patients?"
+  gold_sql: |
+    WITH dm AS (
+      SELECT DESYNPUF_ID FROM bene_2008 WHERE SP_DIABETES = 1
+      UNION
+      SELECT DESYNPUF_ID FROM bene_2009 WHERE SP_DIABETES = 1
+      UNION
+      SELECT DESYNPUF_ID FROM bene_2010 WHERE SP_DIABETES = 1
+    ),
+    lines AS (
+      SELECT l.hcpcs
+      FROM carrier c
+      JOIN dm ON c.DESYNPUF_ID = dm.DESYNPUF_ID,
+      LATERAL unnest(
+        ARRAY[c.HCPCS_CD_1, c.HCPCS_CD_2, c.HCPCS_CD_3, c.HCPCS_CD_4,
+              c.HCPCS_CD_5, c.HCPCS_CD_6, c.HCPCS_CD_7, c.HCPCS_CD_8,
+              c.HCPCS_CD_9, c.HCPCS_CD_10, c.HCPCS_CD_11, c.HCPCS_CD_12,
+              c.HCPCS_CD_13]
+      ) AS l(hcpcs)
+      WHERE l.hcpcs IS NOT NULL
+    )
+    SELECT hcpcs, COUNT(*) AS n
+    FROM lines GROUP BY 1 ORDER BY n DESC LIMIT 5;
+  gold_answer: USER_INPUT
+  answer_type: table
+  traps: [wide_table_unpivot, chronic_flag_encoding, cross_year_join_inflation]
+
+
+# --- Group F: diagnosis position (1 case) ---
+
+- id: L3-F01
+  tier: aggregation_semantics
+  question: "How many people were hospitalized for heart failure in 2009?"
+  gold_sql: |
+    SELECT COUNT(DISTINCT DESYNPUF_ID)
+    FROM inpatient
+    WHERE SUBSTRING(CLM_ADMSN_DT, 1, 4) = '2009'
+      AND (ICD9_DGNS_CD_1  LIKE '428%' OR ICD9_DGNS_CD_2  LIKE '428%'
+        OR ICD9_DGNS_CD_3  LIKE '428%' OR ICD9_DGNS_CD_4  LIKE '428%'
+        OR ICD9_DGNS_CD_5  LIKE '428%' OR ICD9_DGNS_CD_6  LIKE '428%'
+        OR ICD9_DGNS_CD_7  LIKE '428%' OR ICD9_DGNS_CD_8  LIKE '428%'
+        OR ICD9_DGNS_CD_9  LIKE '428%' OR ICD9_DGNS_CD_10 LIKE '428%');
+  gold_answer: 5159
+  answer_type: scalar
+  tolerance: 0
+  traps: [multi_position_diagnosis, icd9_code_knowledge, distinct_person_vs_claim]
+  wrong_sql: |
+    -- Wrong: only checks the principal diagnosis slot
+    SELECT COUNT(DISTINCT DESYNPUF_ID) FROM inpatient
+    WHERE SUBSTRING(CLM_ADMSN_DT,1,4)='2009' AND ICD9_DGNS_CD_1 LIKE '428%';
+  common_wrong_answers:
+    USER_INPUT: "only searched the principal diagnosis slot"
+  requires_knowledge: [icd9_chf_codes]
+  notes: "Heart failure is ICD-9 428.x. Without a code list the agent must guess — a key case for demonstrating the semantic layer's value"
+
+
+# =============================================================
+# L4 — Metric computation (14 cases)
+# Multi-step reasoning requiring CTEs and window functions.
+# Several traps stack in a single case.
+# =============================================================
+
+- id: L4-001
+  tier: metric
+  question: "What was the 30-day all-cause readmission rate in 2009?"
+  gold_sql: |
+    WITH idx AS (
+      SELECT DESYNPUF_ID, CLM_ID,
+             strptime(NCH_BENE_DSCHRG_DT, '%Y%m%d')::DATE AS dis
+      FROM inpatient
+      WHERE SUBSTRING(CLM_ADMSN_DT, 1, 4) = '2009'
+        AND NCH_BENE_DSCHRG_DT IS NOT NULL
+    ),
+    readmit AS (
+      SELECT DISTINCT i.CLM_ID
+      FROM idx i
+      JOIN inpatient r ON r.DESYNPUF_ID = i.DESYNPUF_ID
+      WHERE r.CLM_ID <> i.CLM_ID
+        AND strptime(r.CLM_ADMSN_DT, '%Y%m%d')::DATE >  i.dis
+        AND strptime(r.CLM_ADMSN_DT, '%Y%m%d')::DATE <= i.dis + INTERVAL 30 DAY
+    )
+    SELECT COUNT(DISTINCT r.CLM_ID)::float / COUNT(DISTINCT i.CLM_ID)
+    FROM idx i LEFT JOIN readmit r ON i.CLM_ID = r.CLM_ID;
+  gold_answer: 0.07561226934194565
+  answer_type: scalar
+  tolerance: 0.0001
+  traps: [date_as_string, window_boundary, self_join, index_stay_definition]
+  notes: |
+    CONFIRM WITH MENTOR — four choices, each changes the result:
+      - clock starts at discharge (used here) or admission
+      - window includes day 30 (used here) or not
+      - planned readmissions excluded (not excluded here)
+      - index stays ending in death excluded (not excluded here)
+
+- id: L4-002
+  tier: metric
+  question: "What is the 30-day readmission rate for heart failure patients?"
+  gold_sql: |
+    WITH idx AS (
+      SELECT DESYNPUF_ID, CLM_ID,
+             strptime(NCH_BENE_DSCHRG_DT, '%Y%m%d')::DATE AS dis
+      FROM inpatient
+      WHERE NCH_BENE_DSCHRG_DT IS NOT NULL
+        AND ICD9_DGNS_CD_1 LIKE '428%'
+    ),
+    readmit AS (
+      SELECT DISTINCT i.CLM_ID
+      FROM idx i
+      JOIN inpatient r ON r.DESYNPUF_ID = i.DESYNPUF_ID
+      WHERE r.CLM_ID <> i.CLM_ID
+        AND strptime(r.CLM_ADMSN_DT, '%Y%m%d')::DATE >  i.dis
+        AND strptime(r.CLM_ADMSN_DT, '%Y%m%d')::DATE <= i.dis + INTERVAL 30 DAY
+    )
+    SELECT COUNT(DISTINCT r.CLM_ID)::float / COUNT(DISTINCT i.CLM_ID)
+    FROM idx i LEFT JOIN readmit r ON i.CLM_ID = r.CLM_ID;
+  gold_answer: 0.10881323367357254
+  answer_type: scalar
+  tolerance: 0.0001
+  traps: [date_as_string, window_boundary, icd9_code_knowledge]
+  requires_knowledge: [icd9_chf_codes]
+  notes: "Index stays defined by principal diagnosis (CMS convention), unlike L3-F01 which uses any position. That contrast is itself worth measuring"
+
+- id: L4-003
+  tier: metric
+  question: "For the 10 DRGs with the highest total spend, what percentage of total inpatient spend does each represent?"
+  gold_sql: |
+    WITH totals AS (
+      SELECT CLM_DRG_CD, SUM(CLM_PMT_AMT) AS amt FROM inpatient GROUP BY 1
+    )
+    SELECT CLM_DRG_CD, amt,
+           amt / SUM(amt) OVER () * 100 AS pct
+    FROM totals ORDER BY amt DESC LIMIT 10;
+  gold_answer: USER_INPUT
+  answer_type: table
+  traps: [window_function, percent_of_total]
+  notes: "Denominator must be spend across all DRGs, not the top 10 subtotal"
+
+- id: L4-004
+  tier: metric
+  question: "How many times higher is per-person spend for diabetic patients than for non-diabetic patients?"
+  gold_sql: |
+    WITH person AS (
+      SELECT DESYNPUF_ID,
+             MAX(CASE WHEN SP_DIABETES = 1 THEN 1 ELSE 0 END) AS dm
+      FROM (
+        SELECT DESYNPUF_ID, SP_DIABETES FROM bene_2008
+        UNION ALL SELECT DESYNPUF_ID, SP_DIABETES FROM bene_2009
+        UNION ALL SELECT DESYNPUF_ID, SP_DIABETES FROM bene_2010
+      )
+      GROUP BY 1
+    ),
+    spend AS (
+      SELECT p.DESYNPUF_ID, p.dm,
+             COALESCE(SUM(i.CLM_PMT_AMT), 0) AS amt
+      FROM person p
+      LEFT JOIN inpatient i ON p.DESYNPUF_ID = i.DESYNPUF_ID
+      GROUP BY 1, 2
+    )
+    SELECT
+      AVG(CASE WHEN dm = 1 THEN amt END)
+      / AVG(CASE WHEN dm <> 1 THEN amt END) AS ratio
+    FROM spend;
+  gold_answer: 8.477606999137949
+  answer_type: scalar
+  tolerance: 0.01
+  traps: [denominator_all_vs_users, chronic_flag_encoding, left_join_required]
+  notes: "People with no hospitalization must stay in the denominator at zero, or the ratio distorts"
+
+- id: L4-005
+  tier: metric
+  question: "Rank states by per-person inpatient spend, top 10."
+  gold_sql: |
+    WITH person AS (
+      SELECT DESYNPUF_ID, SP_STATE_CODE
+      FROM (
+        SELECT DESYNPUF_ID, SP_STATE_CODE, 2010 AS yr FROM bene_2010
+        UNION ALL SELECT DESYNPUF_ID, SP_STATE_CODE, 2009 FROM bene_2009
+        UNION ALL SELECT DESYNPUF_ID, SP_STATE_CODE, 2008 FROM bene_2008
+      )
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY DESYNPUF_ID ORDER BY yr DESC) = 1
+    )
+    SELECT p.SP_STATE_CODE,
+           COALESCE(SUM(i.CLM_PMT_AMT), 0) / COUNT(DISTINCT p.DESYNPUF_ID) AS per_capita
+    FROM person p
+    LEFT JOIN inpatient i ON p.DESYNPUF_ID = i.DESYNPUF_ID
+    GROUP BY 1 ORDER BY per_capita DESC LIMIT 10;
+  gold_answer: USER_INPUT
+  answer_type: table
+  traps: [denominator_all_vs_users, left_join_required]
+
+- id: L4-006
+  tier: metric
+  question: "What was the year-over-year growth in inpatient spend from 2008 to 2010?"
+  gold_sql: |
+    WITH yearly AS (
+      SELECT SUBSTRING(CLM_FROM_DT, 1, 4) AS yr, SUM(CLM_PMT_AMT) AS amt
+      FROM inpatient
+      WHERE SUBSTRING(CLM_FROM_DT, 1, 4) IN ('2008','2009','2010')
+      GROUP BY 1
+    )
+    SELECT yr, amt,
+           (amt - LAG(amt) OVER (ORDER BY yr)) / LAG(amt) OVER (ORDER BY yr) AS growth
+    FROM yearly ORDER BY yr;
+  gold_answer: USER_INPUT
+  answer_type: table
+  traps: [window_function, date_as_string]
+
+- id: L4-007
+  tier: metric
+  question: "What are the median and 90th percentile inpatient payment amounts?"
+  gold_sql: |
+    SELECT
+      PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CLM_PMT_AMT) AS p50,
+      PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY CLM_PMT_AMT) AS p90
+    FROM inpatient;
+  gold_answer: USER_INPUT
+  answer_type: table
+  traps: [percentile_syntax]
+
+- id: L4-008
+  tier: metric
+  question: "What share of total spend is accounted for by the highest-spending 5% of beneficiaries?"
+  gold_sql: |
+    WITH person AS (
+      SELECT DISTINCT DESYNPUF_ID FROM (
+        SELECT DESYNPUF_ID FROM bene_2008
+        UNION ALL SELECT DESYNPUF_ID FROM bene_2009
+        UNION ALL SELECT DESYNPUF_ID FROM bene_2010
+      )
+    ),
+    spend AS (
+      SELECT p.DESYNPUF_ID, COALESCE(SUM(i.CLM_PMT_AMT), 0) AS amt
+      FROM person p
+      LEFT JOIN inpatient i ON p.DESYNPUF_ID = i.DESYNPUF_ID
+      GROUP BY 1
+    ),
+    ranked AS (
+      SELECT amt, NTILE(20) OVER (ORDER BY amt DESC) AS bucket FROM spend
+    )
+    SELECT SUM(CASE WHEN bucket = 1 THEN amt ELSE 0 END)::float
+           / SUM(amt) * 100 AS pct
+    FROM ranked;
+  gold_answer: 46.73485403079541
+  answer_type: scalar
+  tolerance: 0.01
+  traps: [window_function, denominator_all_vs_users]
+  notes: "Zero-spend beneficiaries must be in the base population, or 'top 5%' is measured against the wrong denominator"
+
+- id: L4-009
+  tier: metric
+  question: "What percentage of patients died within 30 days of their first 2009 hospitalization?"
+  gold_sql: |
+    WITH first_stay AS (
+      SELECT DESYNPUF_ID,
+             strptime(NCH_BENE_DSCHRG_DT, '%Y%m%d')::DATE AS dis
+      FROM inpatient
+      WHERE SUBSTRING(CLM_ADMSN_DT, 1, 4) = '2009'
+        AND NCH_BENE_DSCHRG_DT IS NOT NULL
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY DESYNPUF_ID ORDER BY CLM_ADMSN_DT) = 1
+    )
+    SELECT SUM(CASE
+             WHEN b.BENE_DEATH_DT IS NOT NULL
+              AND strptime(b.BENE_DEATH_DT, '%Y%m%d')::DATE <= f.dis + INTERVAL 30 DAY
+             THEN 1 ELSE 0 END)::float / COUNT(*) AS rate
+    FROM first_stay f
+    JOIN bene_2009 b ON f.DESYNPUF_ID = b.DESYNPUF_ID;
+  gold_answer: 0.001274291193112731
+  answer_type: scalar
+  tolerance: 0.0001
+  traps: [date_as_string, first_event_selection, null_semantics, window_boundary]
+
+- id: L4-010
+  tier: metric
+  question: "For the 10 highest-volume DRGs, what are the average length of stay and average payment?"
+  gold_sql: |
+    SELECT CLM_DRG_CD,
+           COUNT(*) AS n,
+           AVG(CLM_UTLZTN_DAY_CNT) AS avg_los,
+           AVG(CLM_PMT_AMT) AS avg_pmt
+    FROM inpatient
+    WHERE CLM_DRG_CD IS NOT NULL
+    GROUP BY 1 ORDER BY n DESC LIMIT 10;
+  gold_answer: USER_INPUT
+  answer_type: table
+  traps: [null_semantics]
+
+- id: L4-011
+  tier: metric
+  question: "How do patients who were readmitted differ from those who weren't, in terms of number of chronic conditions?"
+  gold_sql: |
+    WITH idx AS (
+      SELECT DESYNPUF_ID, CLM_ID,
+             strptime(NCH_BENE_DSCHRG_DT, '%Y%m%d')::DATE AS dis
+      FROM inpatient
+      WHERE NCH_BENE_DSCHRG_DT IS NOT NULL
+    ),
+    flagged AS (
+      SELECT i.DESYNPUF_ID,
+             MAX(CASE WHEN EXISTS (
+               SELECT 1 FROM inpatient r
+               WHERE r.DESYNPUF_ID = i.DESYNPUF_ID AND r.CLM_ID <> i.CLM_ID
+                 AND strptime(r.CLM_ADMSN_DT, '%Y%m%d')::DATE >  i.dis
+                 AND strptime(r.CLM_ADMSN_DT, '%Y%m%d')::DATE <= i.dis + INTERVAL 30 DAY
+             ) THEN 1 ELSE 0 END) AS has_readmit
+      FROM idx i GROUP BY 1
+    )
+    SELECT f.has_readmit,
+           COUNT(*) AS n,
+           AVG(CASE WHEN b.SP_ALZHDMTA=1 THEN 1 ELSE 0 END
+             + CASE WHEN b.SP_CHF     =1 THEN 1 ELSE 0 END
+             + CASE WHEN b.SP_CHRNKIDN=1 THEN 1 ELSE 0 END
+             + CASE WHEN b.SP_CNCR    =1 THEN 1 ELSE 0 END
+             + CASE WHEN b.SP_COPD    =1 THEN 1 ELSE 0 END
+             + CASE WHEN b.SP_DEPRESSN=1 THEN 1 ELSE 0 END
+             + CASE WHEN b.SP_DIABETES=1 THEN 1 ELSE 0 END
+             + CASE WHEN b.SP_ISCHMCHT=1 THEN 1 ELSE 0 END
+             + CASE WHEN b.SP_OSTEOPRS=1 THEN 1 ELSE 0 END
+             + CASE WHEN b.SP_RA_OA   =1 THEN 1 ELSE 0 END
+             + CASE WHEN b.SP_STRKETIA=1 THEN 1 ELSE 0 END)::float AS avg_chronic
+    FROM flagged f
+    JOIN (
+      SELECT DESYNPUF_ID, SP_ALZHDMTA, SP_CHF, SP_CHRNKIDN, SP_CNCR, SP_COPD,
+             SP_DEPRESSN, SP_DIABETES, SP_ISCHMCHT, SP_OSTEOPRS, SP_RA_OA, SP_STRKETIA
+      FROM (
+        SELECT *, 2010 AS yr FROM bene_2010
+        UNION ALL SELECT *, 2009 FROM bene_2009
+        UNION ALL SELECT *, 2008 FROM bene_2008
+      )
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY DESYNPUF_ID ORDER BY yr DESC) = 1
+    ) b ON f.DESYNPUF_ID = b.DESYNPUF_ID
+    GROUP BY 1;
+  gold_answer: USER_INPUT
+  answer_type: table
+  traps: [self_join, chronic_flag_encoding, multi_column_aggregation]
+
+- id: L4-012
+  tier: metric
+  question: "Show the hospitalization rate for heart failure patients by state, reporting only results that are releasable."
+  gold_sql: |
+    WITH chf AS (
+      SELECT DESYNPUF_ID,
+             arg_max(SP_STATE_CODE, yr) AS SP_STATE_CODE
+      FROM (
+        SELECT DESYNPUF_ID, SP_STATE_CODE, SP_CHF, 2010 AS yr FROM bene_2010
+        UNION ALL SELECT DESYNPUF_ID, SP_STATE_CODE, SP_CHF, 2009 FROM bene_2009
+        UNION ALL SELECT DESYNPUF_ID, SP_STATE_CODE, SP_CHF, 2008 FROM bene_2008
+      )
+      GROUP BY 1
+      HAVING MAX(CASE WHEN SP_CHF = 1 THEN 1 ELSE 0 END) = 1
+    )
+    SELECT c.SP_STATE_CODE,
+           COUNT(DISTINCT c.DESYNPUF_ID) AS denom,
+           COUNT(DISTINCT i.DESYNPUF_ID) AS numer,
+           COUNT(DISTINCT i.DESYNPUF_ID)::float
+             / COUNT(DISTINCT c.DESYNPUF_ID) AS rate
+    FROM chf c
+    LEFT JOIN inpatient i
+      ON c.DESYNPUF_ID = i.DESYNPUF_ID
+    GROUP BY 1
+    HAVING COUNT(DISTINCT c.DESYNPUF_ID) >= 11
+    ORDER BY rate DESC;
+  gold_answer: USER_INPUT
+  answer_type: table
+  traps: [cell_suppression, chronic_flag_encoding]
+  requires_knowledge: [cms_cell_suppression_rule]
+  notes: |
+    CMS disclosure policy: cells with fewer than 11 patients must be
+    suppressed. The agent cannot know this on its own — it has to come
+    from the semantic layer. Strong demo material: it shows the team
+    understands Telligen's compliance requirements, not just the SQL.
+
+- id: L4-013
+  tier: metric
+  question: "What was the monthly trend in inpatient spend during 2009? Identify the highest and lowest months."
+  gold_sql: |
+    SELECT SUBSTRING(CLM_ADMSN_DT, 5, 2) AS mon,
+           SUM(CLM_PMT_AMT) AS amt,
+           COUNT(*) AS n_stays
+    FROM inpatient
+    WHERE SUBSTRING(CLM_ADMSN_DT, 1, 4) = '2009'
+    GROUP BY 1 ORDER BY 1;
+  gold_answer: USER_INPUT
+  answer_type: table
+  traps: [date_as_string, narrative_correctness]
+  notes: "Also grades the final narrative — correct SQL with a reversed explanation still counts as wrong"
+
+- id: L4-014
+  tier: metric
+  question: "What is the median household income of the beneficiaries?"
+  gold_sql: null
+  gold_answer: "ABSTAIN"
+  answer_type: abstention
+  traps: [hallucination_check]
+  notes: |
+    There is no income field in this data. The correct behavior is to
+    say the question cannot be answered. Any number returned counts as
+    a hallucination and is a serious failure.
+    Add 2-3 more abstention cases of this kind, scattered through the
+    set rather than clustered at the end.

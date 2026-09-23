@@ -1,4 +1,4 @@
-"""Read-only access to the synthetic health database.
+"""Read-only access to the active dataset's SQLite database.
 
 Plain functions, no agent framework imported, so the same file works under any
 harness. Every query the agent runs goes through `run_sql`, which is where the
@@ -34,64 +34,31 @@ import json
 import sqlite3
 import time
 from functools import lru_cache
+from importlib import import_module
 
-from paths import DB_PATH, KNOWLEDGE
+from paths import DB_PATH, LAYOUT, table_notes_path
 
 DEFAULT_ROW_LIMIT = 1000
 QUERY_TIMEOUT_SECONDS = 30
 
-# Joins, verified against the live database by counting orphans. SQLite
-# declares no foreign keys here - PRAGMA foreign_key_list is empty on all 18
-# tables - so nothing enforces these at write time and nothing but this map
-# records them.
-#
-# Two of these are missing from instructions.md and one trap is not:
-# claims_transactions.PATIENTINSURANCEID reads like a payers link and is not
-# one. 2,136,679 of its 2.2M values match no payer; it is a per-patient policy
-# id. Joining on it silently returns almost nothing.
-_CLINICAL = {"PATIENT": "patients", "ENCOUNTER": "encounters"}
-EDGES: dict[str, dict[str, str]] = {
-    "allergies": _CLINICAL,
-    "careplans": _CLINICAL,
-    "conditions": _CLINICAL,
-    "devices": _CLINICAL,
-    "imaging_studies": _CLINICAL,
-    "immunizations": _CLINICAL,
-    "observations": _CLINICAL,
-    "procedures": _CLINICAL,
-    "supplies": _CLINICAL,
-    # medications.PAYER is a real link that instructions.md does not mention.
-    "medications": _CLINICAL | {"PAYER": "payers"},
-    "encounters": {
-        "PATIENT": "patients",
-        "ORGANIZATION": "organizations",
-        "PROVIDER": "providers",
-        "PAYER": "payers",
-    },
-    "providers": {"ORGANIZATION": "organizations"},
-    "payer_transitions": {
-        "PATIENT": "patients",
-        "PAYER": "payers",
-        "SECONDARY_PAYER": "payers",
-    },
-    # claims has no ENCOUNTER column. APPOINTMENTID is the only route from a
-    # claim back to the visit it bills for.
-    "claims": {
-        "PATIENTID": "patients",
-        "APPOINTMENTID": "encounters",
-        "PROVIDERID": "providers",
-        "SUPERVISINGPROVIDERID": "providers",
-        "PRIMARYPATIENTINSURANCEID": "payers",
-        "SECONDARYPATIENTINSURANCEID": "payers",
-    },
-    "claims_transactions": {
-        "CLAIMID": "claims",
-        "PATIENTID": "patients",
-        "APPOINTMENTID": "encounters",
-        "PROVIDERID": "providers",
-        "SUPERVISINGPROVIDERID": "providers",
-    },
-}
+
+def _load_profile():
+    name = LAYOUT.get("profile")
+    if not name:
+        return None
+    return import_module(name)
+
+
+_PROFILE = _load_profile()
+EDGES: dict = getattr(_PROFILE, "EDGES", {})
+
+
+def _edge_targets(spec) -> list[tuple[str, str]]:
+    if not spec:
+        return []
+    if isinstance(spec, tuple) and len(spec) == 2 and isinstance(spec[0], str):
+        return [spec]
+    return list(spec)
 
 # SQLite actions a question-answering agent legitimately needs. Everything else
 # - INSERT, UPDATE, DELETE, ATTACH, PRAGMA, CREATE, DROP - is denied.
@@ -145,9 +112,9 @@ def _row_counts(_mtime: float) -> dict[str, int]:
     Keyed on mtime so a table created or dropped by the admin service, which
     runs as its own process, invalidates this without any message passing.
 
-    Worth caching: claims_transactions holds 2.2M rows and carries no index at
-    all, so counting it takes about five seconds. Counting all 18 tables on
-    every schema view was the slowest thing in the app.
+    Worth caching: a large unindexed table (Synthea's claims_transactions is
+    2.2M rows) takes seconds to count. Counting every table on every schema
+    view was the slowest thing in the app.
     """
     conn = _connect(restricted=False)
     try:
@@ -169,7 +136,7 @@ def _knowledge(table: str) -> str:
     Files are authored by a human through the admin service. The agent reads
     them and never writes them.
     """
-    path = KNOWLEDGE / "tables" / f"{table}.md"
+    path = table_notes_path(table)
     return path.read_text(encoding="utf-8").strip() if path.is_file() else ""
 
 
@@ -295,7 +262,9 @@ def describe_schema(table: str | None = None) -> str:
         joins = EDGES.get(table, {})
         if joins:
             lines += ["", "## Joins", ""]
-            lines += [f"  {col} -> {target}.Id" for col, target in sorted(joins.items())]
+            for col, spec in sorted(joins.items()):
+                for target, key in _edge_targets(spec):
+                    lines.append(f"  {col} -> {target}.{key}")
 
         notes = _knowledge(table)
         if notes:
@@ -329,40 +298,30 @@ def schema_json() -> dict:
         conn.close()
 
     edges = [
-        {"source": table, "column": col, "target": target}
+        {"source": table, "column": col, "target": target, "key": key}
         for table, joins in EDGES.items()
-        for col, target in joins.items()
+        for col, spec in joins.items()
+        for target, key in _edge_targets(spec)
     ]
     return {"tables": tables, "edges": edges}
 
 
 def _self_check() -> None:
-    listing = describe_schema()
-    assert "patients" in listing and "observations" in listing, listing
     assert "No table named" in describe_schema("patientz")
-    assert "Did you mean: patients?" in describe_schema("atient")
-    assert "BIRTHDATE" in describe_schema("patients")
-
-    counted = run_sql("SELECT COUNT(*) AS n FROM patients")
-    assert '"n": 2311' in counted, counted
-
-    capped = run_sql("SELECT Id FROM patients", limit=5)
-    assert "row_count: 5" in capped and "TRUNCATED" in capped, capped
 
     for statement in (
-        "DROP TABLE patients",
-        "DELETE FROM patients",
-        "INSERT INTO patients (Id) VALUES ('x')",
-        "UPDATE patients SET FIRST = 'x'",
         "CREATE TABLE t (a int)",
         "ATTACH DATABASE 'other.db' AS other",
-        "PRAGMA table_info(patients)",
-        "SELECT 1; DROP TABLE patients",
+        "SELECT 1; DROP TABLE t",
     ):
         refusal = run_sql(statement)
         assert "rows:" not in refusal, f"{statement!r} was not refused: {refusal}"
 
     assert "SQL error" in run_sql("SELECT * FROM no_such_table")
+
+    check = getattr(_PROFILE, "self_check", None) if _PROFILE else None
+    if check:
+        check(describe_schema, run_sql)
     print("self-check passed")
 
 

@@ -14,28 +14,32 @@ real patients and no PHI.
 ```
 Database/
   Synthea/    health.db, threads.db, the generator, and what the data means
+    layout.json        files that ride in the system prompt, plus join profile
     knowledge/
-      tables/   one .md per table: what it holds and what goes wrong
+      instructions.md  tool order and Synthea traps
       definitions.md   cohort rules, HbA1c bands, readmission definition
+      tables/          one .md per table: what it holds and what goes wrong
 Backend/      Python. Two services and the agent they share
 Frontend/     React + TypeScript + Vite app. admin.html stays plain HTML
 ```
 
-`knowledge/` lives under `Database/Synthea/` because it documents the tables, not the
-code. It stays useful if the Python is replaced. `Backend/instructions.md` is
-the opposite: prompt text, so it sits with the code.
+`knowledge/` lives under `Database/Synthea/` because it documents the tables and
+how to query them, not the Python. It stays useful if the harness is replaced.
+`layout.json` lists which of those files go into the system prompt. Switch
+datasets with `DATASET`. Synthea's Iowa instructions live in its layout, not
+in Backend, so they do not leak into CMS.
 
 ### Backend
 
 | File | Role |
 |---|---|
-| `paths.py` | Dataset root. `DATASET` selects `Database/<name>/` (`Synthea` by default). |
+| `paths.py` | Dataset root. `DATASET` selects `Database/<name>/` (`Synthea` by default). Loads `layout.json`. |
 | `tools.py` | The two tools: `run_sql` and `describe_schema`. Read-only enforcement lives here. No framework imports, so it works under any harness. |
-| `agent.py` | Deep Agents wiring. Strips the eight built-in filesystem and shell tools. Terminal loop. |
+| `agent.py` | Deep Agents wiring. Strips the eight built-in filesystem and shell tools. Terminal loop. Prompt comes from the dataset layout. |
 | `api.py` | Agent service, port 8000. Streams a turn to the browser, exposes the approval gate over HTTP, and replays stored threads. |
 | `admin.py` | Admin service, port 8001. The only write connection in the codebase. |
-| `instructions.md` | System prompt. |
-| `eval.py`, `eval_cases.py` | Graded accuracy and measured cost. |
+| `eval.py`, `eval_cases.py` | Synthea graded accuracy and measured cost. |
+| `eval_cms.py` | CMS Sample 1 `eval_set.yaml`: gold SQL vs live DB, no model. |
 
 ## Setup
 
@@ -181,6 +185,10 @@ assertion catches that.
 
 With a key set, `python eval.py` runs the graded set and prints accuracy and
 measured cost. `eval_cases.py` documents what the number does not cover.
+
+CMS Sample 1 is a different file: `DATASET=CMS_SynPUF/sample1 python eval_cms.py`
+runs each `gold_sql` in `eval_set.yaml` against `health.db` and reports by tier
+and trap. It does not call the model.
 
 ## How the approval gate works
 
